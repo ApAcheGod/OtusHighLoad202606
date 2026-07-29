@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: otus_highload
+      POSTGRES_USER: otus
+      POSTGRES_PASSWORD: otus_pass
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.max=10000"
+      - "-c"
+      - "pg_stat_statements.track=all"
+      - "-c"
+      - "track_io_timing=on"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres:5432/otus_highload?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
+    command:
+      - "--no-collector.wal"
+    volumes:
+      - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/otus_highload
+      SPRING_DATASOURCE_USERNAME: otus
+      SPRING_DATASOURCE_PASSWORD: otus_pass
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - loki
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - ./loki/promtail-config.yml:/etc/promtail/promtail-config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
+
+volumes:
+  loki-data:

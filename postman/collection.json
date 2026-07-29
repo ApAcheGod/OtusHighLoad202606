@@ -1,0 +1,117 @@
+{
+  "info": {
+    "name": "OTUS Highload Social Network",
+    "description": "Коллекция для тестирования API социальной сети",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Register",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set('user_id', jsonData.user_id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"Иван\",\n  \"second_name\": \"Петров\",\n  \"birthdate\": \"1990-05-15\",\n  \"gender\": \"MALE\",\n  \"interests\": \"программирование, футбол\",\n  \"biography\": \"Студент OTUS\",\n  \"city\": \"Москва\",\n  \"password\": \"secret123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/user/register",
+          "host": ["{{base_url}}"],
+          "path": ["user", "register"]
+        }
+      }
+    },
+    {
+      "name": "Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set('token', jsonData.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{user_id}}\",\n  \"password\": \"secret123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/login",
+          "host": ["{{base_url}}"],
+          "path": ["login"]
+        }
+      }
+    },
+    {
+      "name": "Get User by ID",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/user/get/{{user_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["user", "get", "{{user_id}}"]
+        }
+      }
+    },
+    {
+      "name": "Search Users",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/user/search?first_name=Ив&last_name=Пет",
+          "host": ["{{base_url}}"],
+          "path": ["user", "search"],
+          "query": [
+            { "key": "first_name", "value": "Ив" },
+            { "key": "last_name", "value": "Пет" }
+          ]
+        }
+      }
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ]
+}

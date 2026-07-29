@@ -1,0 +1,18 @@
+[versions]
+kotlin = "2.4.0"
+kotlinxCoroutines = "1.10.2"
+springBoot = "4.1.0"
+springDependencyManagement = "1.1.7"
+postgresql = "42.7.5"
+
+[libraries]
+kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+kotlinxCoroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinxCoroutinesReactor = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-reactor", version.ref = "kotlinxCoroutines" }
+springBootGradlePlugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "springBoot" }
+springDependencyManagementPlugin = { module = "io.spring.gradle:dependency-management-plugin", version.ref = "springDependencyManagement" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+
+[plugins]
+springBoot = { id = "org.springframework.boot", version.ref = "springBoot" }
+springDependencyManagement = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }
