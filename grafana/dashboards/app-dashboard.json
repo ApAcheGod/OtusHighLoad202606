@@ -1,0 +1,476 @@
+{
+  "title": "Otus Highload",
+  "uid": "otus-highload-app",
+  "tags": ["otus", "highload", "spring"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 0,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+          "legendFormat": "used {{id}}"
+        },
+        {
+          "expr": "jvm_memory_max_bytes{area=\"heap\"}",
+          "legendFormat": "max {{id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "displayMode": "overrides", "lineInterpolation": "smooth", "showPoints": "never" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "max" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash" } }] }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Non-Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"nonheap\"}",
+          "legendFormat": "used {{id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 3,
+      "title": "GC Pause Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum[1m])",
+          "legendFormat": "{{action}} {{cause}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Threads",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads",
+          "legendFormat": "live"
+        },
+        {
+          "expr": "jvm_threads_peak_threads",
+          "legendFormat": "peak"
+        },
+        {
+          "expr": "jvm_threads_daemon_threads",
+          "legendFormat": "daemon"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Classes Loaded",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "jvm_classes_loaded_classes",
+          "legendFormat": "loaded"
+        },
+        {
+          "expr": "rate(jvm_classes_unloaded_classes_total[1m])",
+          "legendFormat": "unloaded (rate)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Compilation Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(jvm_compilation_time_ms_total[1m])",
+          "legendFormat": "JIT compilation"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 7,
+      "title": "HTTP Requests / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[1m])",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 8,
+      "title": "HTTP Requests by Status",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"2..\"}[1m]))",
+          "legendFormat": "2xx"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"4..\"}[1m]))",
+          "legendFormat": "4xx"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"5..\"}[1m]))",
+          "legendFormat": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 9,
+      "title": "HTTP Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 10,
+      "title": "HTTP Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"[45]..\"}[1m])) / sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[1m])) * 100",
+          "legendFormat": "error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": { "lineInterpolation": "smooth", "showPoints": "never" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "DB Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active",
+          "legendFormat": "active"
+        },
+        {
+          "expr": "hikaricp_connections_idle",
+          "legendFormat": "idle"
+        },
+        {
+          "expr": "hikaricp_connections_pending",
+          "legendFormat": "pending"
+        },
+        {
+          "expr": "hikaricp_connections_max",
+          "legendFormat": "max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Connection Acquire Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_acquire_seconds_max",
+          "legendFormat": "max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Connection Timeouts",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "rate(hikaricp_connections_timeout_total[1m])",
+          "legendFormat": "timeouts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Registered Users",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 8, "y": 32 },
+      "targets": [
+        {
+          "expr": "app_users",
+          "legendFormat": "users"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "displayMode": "list" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Active Sessions",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "app_sessions_active",
+          "legendFormat": "sessions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "displayMode": "list" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "User Registration Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "targets": [
+        {
+          "expr": "rate(app_registrations_total[1m])",
+          "legendFormat": "registrations/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 17,
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "expr": "process_cpu_usage",
+          "legendFormat": "process"
+        },
+        {
+          "expr": "system_cpu_usage",
+          "legendFormat": "system"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Disk Usage",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 40 },
+      "targets": [
+        {
+          "expr": "100 - (disk_free_bytes / disk_total_bytes * 100)",
+          "legendFormat": "used %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "custom": { "displayMode": "list" }
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 40 },
+      "targets": [
+        {
+          "expr": "process_uptime_seconds",
+          "legendFormat": "uptime"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "displayMode": "list" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Open Files",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 40 },
+      "targets": [
+        {
+          "expr": "process_files_open_files",
+          "legendFormat": "open"
+        },
+        {
+          "expr": "process_files_max_files",
+          "legendFormat": "max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "displayMode": "list" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Login Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "targets": [
+        {
+          "expr": "rate(app_login_success_total[1m])",
+          "legendFormat": "success"
+        },
+        {
+          "expr": "rate(app_login_failure_total[1m])",
+          "legendFormat": "failure"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": { "lineInterpolation": "smooth", "showPoints": "never" }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Successful Logins",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 48 },
+      "targets": [
+        {
+          "expr": "app_login_success_total",
+          "legendFormat": "success"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "displayMode": "list" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Failed Logins",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 48 },
+      "targets": [
+        {
+          "expr": "app_login_failure_total",
+          "legendFormat": "failure"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "displayMode": "list" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

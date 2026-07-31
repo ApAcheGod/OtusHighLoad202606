@@ -1,0 +1,308 @@
+pg_stat_app_queries_total_time:
+  query: |
+    SELECT
+      queryid,
+      left(query, 200) AS query,
+      calls,
+      total_exec_time,
+      mean_exec_time,
+      rows
+    FROM pg_stat_statements
+    WHERE userid = 'otus'::regrole
+      AND calls > 1
+      AND query !~* '(databasechangelog|pg_stat_statements|pg_catalog)'
+      AND query !~* '^\s*(SET|SHOW|BEGIN|COMMIT|ROLLBACK|CREATE|ALTER|DROP|GRANT|REVOKE)(\s|$)'
+      AND query !~* '^\s*select\s+(version|current_catalog|current_schema|current_database|string_agg|setting)(\s|\(|$)'
+      AND query !~* '~\*'
+    ORDER BY total_exec_time DESC
+    LIMIT 20
+  metrics:
+    - queryid:
+        usage: "LABEL"
+        description: "Query ID"
+    - query:
+        usage: "LABEL"
+        description: "Query text (first 200 chars)"
+    - calls:
+        usage: "COUNTER"
+        description: "Number of times executed"
+    - total_exec_time:
+        usage: "COUNTER"
+        description: "Total execution time (ms)"
+    - mean_exec_time:
+        usage: "GAUGE"
+        description: "Mean execution time (ms)"
+    - rows:
+        usage: "COUNTER"
+        description: "Total rows returned/affected"
+
+pg_stat_app_queries_by_calls:
+  query: |
+    SELECT
+      queryid,
+      left(query, 200) AS query,
+      calls,
+      total_exec_time / 1000 AS total_time_sec,
+      mean_exec_time,
+      rows
+    FROM pg_stat_statements
+    WHERE userid = 'otus'::regrole
+      AND calls > 1
+      AND query !~* '(databasechangelog|pg_stat_statements|pg_catalog)'
+      AND query !~* '^\s*(SET|SHOW|BEGIN|COMMIT|ROLLBACK|CREATE|ALTER|DROP|GRANT|REVOKE)(\s|$)'
+      AND query !~* '^\s*select\s+(version|current_catalog|current_schema|current_database|string_agg|setting)(\s|\(|$)'
+      AND query !~* '~\*'
+    ORDER BY calls DESC
+    LIMIT 20
+  metrics:
+    - queryid:
+        usage: "LABEL"
+        description: "Query ID"
+    - query:
+        usage: "LABEL"
+        description: "Query text (first 200 chars)"
+    - calls:
+        usage: "COUNTER"
+        description: "Number of times executed"
+    - total_time_sec:
+        usage: "COUNTER"
+        description: "Total execution time (s)"
+    - mean_exec_time:
+        usage: "GAUGE"
+        description: "Mean execution time (ms)"
+    - rows:
+        usage: "COUNTER"
+        description: "Total rows returned/affected"
+
+pg_stat_app_queries_slowest:
+  query: |
+    SELECT
+      queryid,
+      left(query, 200) AS query,
+      calls,
+      mean_exec_time,
+      total_exec_time / 1000 AS total_time_sec,
+      rows
+    FROM pg_stat_statements
+    WHERE userid = 'otus'::regrole
+      AND calls > 1
+      AND query !~* '(databasechangelog|pg_stat_statements|pg_catalog)'
+      AND query !~* '^\s*(SET|SHOW|BEGIN|COMMIT|ROLLBACK|CREATE|ALTER|DROP|GRANT|REVOKE)(\s|$)'
+      AND query !~* '^\s*select\s+(version|current_catalog|current_schema|current_database|string_agg|setting)(\s|\(|$)'
+      AND query !~* '~\*'
+    ORDER BY mean_exec_time DESC
+    LIMIT 20
+  metrics:
+    - queryid:
+        usage: "LABEL"
+        description: "Query ID"
+    - query:
+        usage: "LABEL"
+        description: "Query text (first 200 chars)"
+    - calls:
+        usage: "COUNTER"
+        description: "Number of times executed"
+    - mean_exec_time:
+        usage: "GAUGE"
+        description: "Mean execution time (ms)"
+    - total_time_sec:
+        usage: "COUNTER"
+        description: "Total execution time (s)"
+    - rows:
+        usage: "COUNTER"
+        description: "Total rows returned/affected"
+
+pg_index_sizes:
+  query: |
+    SELECT
+      i.schemaname,
+      i.relname AS tablename,
+      i.indexrelname AS indexname,
+      pg_relation_size(i.indexrelid) AS size_bytes,
+      i.idx_scan,
+      i.idx_tup_read,
+      i.idx_tup_fetch,
+      idx.indisunique
+    FROM pg_stat_user_indexes i
+    JOIN pg_index idx ON idx.indexrelid = i.indexrelid
+  metrics:
+    - schemaname:
+        usage: "LABEL"
+        description: "Schema name"
+    - tablename:
+        usage: "LABEL"
+        description: "Table name"
+    - indexname:
+        usage: "LABEL"
+        description: "Index name"
+    - size_bytes:
+        usage: "GAUGE"
+        description: "Index size in bytes"
+    - idx_scan:
+        usage: "COUNTER"
+        description: "Number of index scans"
+    - idx_tup_read:
+        usage: "COUNTER"
+        description: "Number of index tuples read"
+    - idx_tup_fetch:
+        usage: "COUNTER"
+        description: "Number of index tuples fetched"
+    - indisunique:
+        usage: "LABEL"
+        description: "Whether the index is unique"
+
+pg_table_sizes:
+  query: |
+    SELECT
+      schemaname,
+      tablename,
+      table_size_bytes,
+      table_size_bytes - COALESCE(index_size_bytes, 0) - COALESCE(toast_size_bytes, 0) AS data_size_bytes,
+      COALESCE(index_size_bytes, 0) AS index_size_bytes,
+      COALESCE(toast_size_bytes, 0) AS toast_size_bytes
+    FROM (
+      SELECT
+        n.nspname AS schemaname,
+        c.relname AS tablename,
+        pg_total_relation_size(c.oid) AS table_size_bytes,
+        pg_indexes_size(c.oid) AS index_size_bytes,
+        COALESCE(pg_total_relation_size(c.reltoastrelid), 0) AS toast_size_bytes
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    ) t
+  metrics:
+    - schemaname:
+        usage: "LABEL"
+        description: "Schema name"
+    - tablename:
+        usage: "LABEL"
+        description: "Table name"
+    - table_size_bytes:
+        usage: "GAUGE"
+        description: "Total table size including indexes and TOAST (bytes)"
+    - data_size_bytes:
+        usage: "GAUGE"
+        description: "Data size excluding indexes and TOAST (bytes)"
+    - index_size_bytes:
+        usage: "GAUGE"
+        description: "Total index size (bytes)"
+    - toast_size_bytes:
+        usage: "GAUGE"
+        description: "TOAST table size (bytes)"
+
+pg_stat_activity_count:
+  query: |
+    SELECT
+      COALESCE(state, 'unknown') AS state,
+      COUNT(*) AS count,
+      COUNT(*) FILTER (WHERE wait_event_type IS NOT NULL) AS waiting
+    FROM pg_stat_activity
+    WHERE backend_type = 'client backend'
+    GROUP BY state
+  metrics:
+    - state:
+        usage: "LABEL"
+        description: "Connection state"
+    - count:
+        usage: "GAUGE"
+        description: "Number of connections in this state"
+    - waiting:
+        usage: "GAUGE"
+        description: "Number of waiting queries"
+
+pg_locks_summary:
+  query: |
+    SELECT
+      locktype,
+      mode,
+      COUNT(*) AS count,
+      COUNT(*) FILTER (WHERE granted = false) AS waiting
+    FROM pg_locks
+    WHERE database IS NOT NULL
+    GROUP BY locktype, mode
+  metrics:
+    - locktype:
+        usage: "LABEL"
+        description: "Type of lock"
+    - mode:
+        usage: "LABEL"
+        description: "Lock mode"
+    - count:
+        usage: "GAUGE"
+        description: "Total number of locks"
+    - waiting:
+        usage: "GAUGE"
+        description: "Number of locks waiting"
+
+pg_stat_database_ext:
+  query: |
+    SELECT
+      datname,
+      xact_commit,
+      xact_rollback,
+      blks_read,
+      blks_hit,
+      tup_returned,
+      tup_fetched,
+      tup_inserted,
+      tup_updated,
+      tup_deleted,
+      conflicts,
+      temp_files,
+      temp_bytes,
+      deadlocks,
+      blk_read_time,
+      blk_write_time,
+      stats_reset
+    FROM pg_stat_database
+    WHERE datname IS NOT NULL
+  metrics:
+    - datname:
+        usage: "LABEL"
+        description: "Database name"
+    - xact_commit:
+        usage: "COUNTER"
+        description: "Number of committed transactions"
+    - xact_rollback:
+        usage: "COUNTER"
+        description: "Number of rolled back transactions"
+    - blks_read:
+        usage: "COUNTER"
+        description: "Number of disk blocks read"
+    - blks_hit:
+        usage: "COUNTER"
+        description: "Number of buffer hits"
+    - tup_returned:
+        usage: "COUNTER"
+        description: "Number of tuples returned"
+    - tup_fetched:
+        usage: "COUNTER"
+        description: "Number of tuples fetched"
+    - tup_inserted:
+        usage: "COUNTER"
+        description: "Number of tuples inserted"
+    - tup_updated:
+        usage: "COUNTER"
+        description: "Number of tuples updated"
+    - tup_deleted:
+        usage: "COUNTER"
+        description: "Number of tuples deleted"
+    - conflicts:
+        usage: "COUNTER"
+        description: "Number of conflicts"
+    - temp_files:
+        usage: "COUNTER"
+        description: "Number of temp files created"
+    - temp_bytes:
+        usage: "COUNTER"
+        description: "Temp file size in bytes"
+    - deadlocks:
+        usage: "COUNTER"
+        description: "Number of deadlocks"
+    - blk_read_time:
+        usage: "COUNTER"
+        description: "Time spent reading blocks (ms)"
+    - blk_write_time:
+        usage: "COUNTER"
+        description: "Time spent writing blocks (ms)"

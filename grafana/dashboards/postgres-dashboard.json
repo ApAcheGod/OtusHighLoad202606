@@ -1,0 +1,408 @@
+{
+  "title": "PostgreSQL — Otus Highload",
+  "uid": "otus-postgres",
+  "tags": ["otus", "highload", "postgresql"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "DB Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "pg_stat_activity_count_count{state=\"active\"}", "legendFormat": "active" },
+        { "expr": "pg_stat_activity_count_count{state=\"idle\"}", "legendFormat": "idle" },
+        { "expr": "pg_stat_activity_count_count{state=\"idle in transaction\"}", "legendFormat": "idle in transaction" },
+        { "expr": "sum(pg_stat_activity_count_waiting)", "legendFormat": "waiting" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Transactions / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "rate(pg_stat_database_ext_xact_commit{datname=\"otus_highload\"}[1m])", "legendFormat": "commits" },
+        { "expr": "rate(pg_stat_database_ext_xact_rollback{datname=\"otus_highload\"}[1m])", "legendFormat": "rollbacks" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Cache Hit Ratio",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_ext_blks_hit{datname=\"otus_highload\"}[5m])) / (sum(rate(pg_stat_database_ext_blks_hit{datname=\"otus_highload\"}[5m])) + sum(rate(pg_stat_database_ext_blks_read{datname=\"otus_highload\"}[5m]))) * 100",
+          "legendFormat": "cache hit %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 95 },
+              { "color": "yellow", "value": 98 },
+              { "color": "green", "value": 99 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Database Size",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(pg_table_sizes_table_size_bytes)",
+          "legendFormat": "total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Top Queries by Calls",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_app_queries_by_calls_calls)",
+          "legendFormat": "{{query}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "text"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Top Queries by Total Time",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_app_queries_total_time_total_exec_time)",
+          "legendFormat": "{{query}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "text"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Top Slowest (mean time)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_app_queries_slowest_mean_exec_time)",
+          "legendFormat": "{{query}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "text"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "DML Activity",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_ext_tup_inserted{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "inserted"
+        },
+        {
+          "expr": "rate(pg_stat_database_ext_tup_updated{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "updated"
+        },
+        {
+          "expr": "rate(pg_stat_database_ext_tup_deleted{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "deleted"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 9,
+      "title": "I/O Timing",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_ext_blk_read_time{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "read time"
+        },
+        {
+          "expr": "rate(pg_stat_database_ext_blk_write_time{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "write time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 10,
+      "title": "DB CPU & IO Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_app_queries_total_time_total_exec_time[1m])) - sum(rate(pg_stat_database_ext_blk_read_time{datname=\"otus_highload\"}[1m])) - sum(rate(pg_stat_database_ext_blk_write_time{datname=\"otus_highload\"}[1m]))",
+          "legendFormat": "CPU time (estimated)"
+        },
+        {
+          "expr": "rate(pg_stat_database_ext_blk_read_time{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "read IO"
+        },
+        {
+          "expr": "rate(pg_stat_database_ext_blk_write_time{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "write IO"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineInterpolation": "smooth", "showPoints": "never" }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Table Sizes",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "pg_table_sizes_table_size_bytes",
+          "legendFormat": "{{tablename}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "text"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Index Sizes",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "targets": [
+        {
+          "expr": "pg_index_sizes_size_bytes",
+          "legendFormat": "{{indexname}} @ {{tablename}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "text"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Live vs Dead Tuples",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "targets": [
+        {
+          "expr": "pg_stat_user_tables_n_live_tup",
+          "legendFormat": "live — {{relname}}"
+        },
+        {
+          "expr": "pg_stat_user_tables_n_dead_tup",
+          "legendFormat": "dead — {{relname}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Locks by Mode",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "pg_locks_summary_count",
+          "legendFormat": "{{locktype}} {{mode}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Waiting Queries",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "targets": [
+        {
+          "expr": "sum(pg_locks_summary_waiting) by (locktype, mode)",
+          "legendFormat": "{{locktype}} {{mode}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Seq vs Index Scans",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_user_tables_seq_scan[1m])",
+          "legendFormat": "seq scan — {{relname}}"
+        },
+        {
+          "expr": "rate(pg_stat_user_tables_idx_scan[1m])",
+          "legendFormat": "idx scan — {{relname}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Vacuum & Analyze",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_user_tables_vacuum_count[1m])",
+          "legendFormat": "vacuum — {{relname}}"
+        },
+        {
+          "expr": "rate(pg_stat_user_tables_autovacuum_count[1m])",
+          "legendFormat": "autovacuum — {{relname}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Deadlocks & Conflicts",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_ext_deadlocks{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "deadlocks / sec"
+        },
+        {
+          "expr": "rate(pg_stat_database_ext_conflicts{datname=\"otus_highload\"}[1m])",
+          "legendFormat": "conflicts / sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    }
+  ]
+}

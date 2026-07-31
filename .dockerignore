@@ -1,0 +1,11 @@
+.gradle/
+.kotlin/
+build/
+.idea/
+.git/
+.gitignore
+*.md
+postgres/
+grafana/
+prometheus/
+postman/

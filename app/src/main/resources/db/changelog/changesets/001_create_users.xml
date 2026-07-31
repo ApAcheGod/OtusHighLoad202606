@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="001_create_users" author="n.alpatov">
+        <createTable tableName="users">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="first_name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="second_name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="birthdate" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="gender" type="VARCHAR(6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="interests" type="TEXT"/>
+            <column name="biography" type="TEXT"/>
+            <column name="city" type="VARCHAR(100)"/>
+            <column name="password_hash" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE users ADD CONSTRAINT ck_users_gender CHECK (gender IN ('MALE', 'FEMALE'));
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
