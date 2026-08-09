@@ -1,5 +1,6 @@
 package ru.otus.highload.app.repository
 
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
@@ -13,6 +14,8 @@ import java.util.UUID
 @Repository
 class UserRepository(
     private val jdbc: NamedParameterJdbcTemplate,
+    @Value("\${app.search.limit:50}")
+    private val searchLimit: Int,
 ) {
     private val rowMapper = RowMapper<User> { rs: ResultSet, _: Int ->
         User(
@@ -66,11 +69,17 @@ class UserRepository(
         val sql = """
             SELECT id, first_name, second_name, birthdate, gender, interests, biography, city, password_hash
             FROM users
-            WHERE first_name ILIKE :firstName AND second_name ILIKE :secondName
+            WHERE first_name LIKE :firstName AND second_name LIKE :secondName
+            ORDER BY id
+            LIMIT :limit
         """.trimIndent()
         val params = MapSqlParameterSource()
-            .addValue("firstName", "$firstName%")
-            .addValue("secondName", "$secondName%")
+            .addValue("firstName", "${firstName.toCapitalizedPrefix()}%")
+            .addValue("secondName", "${secondName.toCapitalizedPrefix()}%")
+            .addValue("limit", searchLimit)
         return jdbc.query(sql, params, rowMapper)
     }
+
+    private fun String.toCapitalizedPrefix(): String =
+        lowercase().replaceFirstChar { it.uppercaseChar() }
 }

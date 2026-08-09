@@ -5,6 +5,10 @@ plugins {
     id("io.spring.dependency-management")
 }
 
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    jvmArgs("-XX:TieredStopAtLevel=4")
+}
+
 dependencies {
     implementation(project(":utils"))
     implementation("org.springframework.boot:spring-boot-starter-web")

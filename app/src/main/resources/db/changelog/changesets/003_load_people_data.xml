@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="003_load_people_data" author="n.alpatov">
+        <comment>Bulk load of people.v2.csv (1M rows) via PostgreSQL COPY</comment>
+        <customChange class="ru.otus.highload.app.liquibase.PeopleDataCopyChange">
+            <param name="csvPath" value="db/changelog/data/people.v2.csv"/>
+        </customChange>
+    </changeSet>
+
+</databaseChangeLog>

@@ -5,12 +5,22 @@ spring:
   application:
     name: otus-highload
   datasource:
-    url: jdbc:postgresql://localhost:5432/otus_highload
+    url: jdbc:postgresql://localhost:5432/otus_highload?rewriteBatchedInserts=true&stringtype=unspecified
     username: otus
     password: otus_pass
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 25
+      connection-timeout: 5000
+      data-source-properties:
+        preparedStatementCacheQueries: 512
+        preparedStatementCacheSizeMiB: 10
   liquibase:
     change-log: classpath:/db/changelog/db.changelog-master.xml
+
+app:
+  search:
+    limit: 50
 
 logging:
   structured:
