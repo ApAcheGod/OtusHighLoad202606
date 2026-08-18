@@ -126,7 +126,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
       "targets": [
         {
-          "expr": "rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[1m])",
+          "expr": "rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[15s])",
           "legendFormat": "{{method}} {{uri}}"
         }
       ],
@@ -141,15 +141,15 @@
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
       "targets": [
         {
-          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"2..\"}[1m]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"2..\"}[15s]))",
           "legendFormat": "2xx"
         },
         {
-          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"4..\"}[1m]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"4..\"}[15s]))",
           "legendFormat": "4xx"
         },
         {
-          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"5..\"}[1m]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"5..\"}[15s]))",
           "legendFormat": "5xx"
         }
       ],
@@ -164,15 +164,15 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[15s])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[15s])) by (le))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[15s])) by (le))",
           "legendFormat": "p99"
         }
       ],
@@ -187,7 +187,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
       "targets": [
         {
-          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"[45]..\"}[1m])) / sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[1m])) * 100",
+          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\", status=~\"[45]..\"}[15s])) / sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[15s])) * 100",
           "legendFormat": "error %"
         }
       ],
@@ -470,6 +470,44 @@
             ]
           }
         }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Search Throughput (RPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{uri=~\"/user/search.*\"}[15s]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Search Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{uri=~\"/user/search.*\"}[15s])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri=~\"/user/search.*\"}[15s])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri=~\"/user/search.*\"}[15s])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineInterpolation": "smooth", "showPoints": "never" } }
       }
     }
   ]
