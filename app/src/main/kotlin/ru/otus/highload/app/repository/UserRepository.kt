@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
 import ru.otus.highload.app.model.Gender
 import ru.otus.highload.app.model.User
 import java.sql.ResultSet
@@ -58,6 +59,7 @@ class UserRepository(
         return jdbc.query(sql, params, rowMapper).firstOrNull()
     }
 
+    @Transactional(readOnly = true)
     fun count(): Long {
         return jdbc.queryForObject("SELECT COUNT(*) FROM users",
             emptyMap<String, Any>(),
