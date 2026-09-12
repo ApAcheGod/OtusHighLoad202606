@@ -340,3 +340,135 @@ Execution Time: 2.986 ms
 | c=1000 | 552 / 331 / 980 / 1390 мс | 6 186 / 4 / 155 / 268 мс | **7 253 / 4 / 119 / 226 мс** |
 
 **Итог**: индекс убрал лимит соединений БД — пропускная способность выросла **в 8–11 раз** на всех уровнях (до ~7 250 rps), медианная латентность упала **на порядок** (до 1–8 мс), p99 на максимальной нагрузке сократился **в 5–6 раз** (с 1 390 до 226 мс).
+
+---
+
+# ДЗ: Репликация
+
+## Шаг 1. Baseline: нагрузочное тестирование чтения до репликации
+
+### Методика
+
+- **Запросы**: `GET /user/get/{id}` и `GET /user/search?first_name=Ал&last_name=См`.
+- **Инструмент**: JMeter 5.6.3, план `user_reads.jmx`.
+- **Уровни**: c = 1 / 10 / 100 / 1000 одновременных запросов; 20 сек/уровень (60 с для c=1000).
+- **Стенд**: PostgreSQL 16 (Docker), Spring Boot 4.1, 10 ядер, VM 12 GB. База ~1M анкет, индекс `users_search_idx`.
+- **Метрики**: RPS, p50/p95/p99 per label; суммарный RPS = search + get.
+
+### Результаты (до репликации, единый PostgreSQL)
+
+| Уровень | search RPS | get RPS | Суммарно | search p50/p95/p99 | get p50/p95/p99 | Ошибки |
+|---|---|---|---|---|---|---|
+| c=1 | 395 | 395 | 789 | 2 / 2 / 3 мс | 1 / 1 / 2 мс | 0 |
+| c=10 | 2 367 | 2 367 | 4 733 | 2 / 4 / 7 мс | 1 / 3 / 5 мс | 0 |
+| c=100 | 3 244 | 3 241 | 6 484 | 13 / 38 / 62 мс | 11 / 35 / 59 мс | 0 |
+| c=1000 | 4 502 | 4 493 | 8 995 | 93 / 210 / 320 мс | 91 / 207 / 293 мс | 0 |
+
+**Вывод (baseline)**: на одиночном PostgreSQL сервис держит **~9 000 rps** на чтении (суммарно по двум эндпоинтам) при c=1000 без единой ошибки; слейвы пока отсутствуют — вся нагрузка идёт на единственный инстанс. Эти цифры — база для сравнения после перевода чтения на реплики.
+
+## Шаг 2. Инфраструктура: 1 мастер + 2 слейва (потоковая репликация)
+
+### Топология
+
+| Сервис | Порт | Роль | Данные |
+|---|---|---|---|
+| `postgres-master` | 5432 | primary (запись) | volume `pg_master_data` |
+| `postgres-slave-1` | 5433 | standby (чтение) | volume `pg_slave1_data` |
+| `postgres-slave-2` | 5434 | standby (чтение) | volume `pg_slave2_data` |
+| `postgres_exporter` / `_slave1` / `_slave2` | 9187/9188/9189 | метрики PG | — |
+
+### Конфигурация
+
+- **Мастер**: `wal_level=replica`, `max_wal_senders=10`, `max_replication_slots=10`, `wal_keep_size=1024`, `hot_standby=on`; инициализация роли `replica` через `init.sql` и настройка HBA для localhost репликации.
+- **Слейвы**: автоматическая инициализация через `pg_basebackup`, создание `standby.signal` и настройка `primary_conninfo`; старт как `hot standby`.
+- **Приложение**: подключение к `postgres-master:5432`; Liquibase привязан к мастеру.
+- **Мониторинг**: exporter на каждый узел (master, slave1, slave2).
+
+### Проверка репликации
+
+```
+postgres-master: SELECT application_name, state, sync_state FROM pg_stat_replication;
+  pg_slave_1 | streaming | async
+  pg_slave_2 | streaming | async
+
+postgres-slave-N: SELECT pg_is_in_recovery(), pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn();
+  t | t   (режим standby, WAL догнан)
+
+count(*) FROM users: master = slave1 = slave2 = 998 949
+```
+
+Live-проверка: `POST /user/register` → строка появляется на обоих слейвах за <2 с. Репликация асинхронная (`sync_state=async`) — синхронный кворум включим позже для эксперимента с потерями.
+
+## Шаг 3. Роутинг: чтение на слейвы, запись на мастер
+
+### Реализация
+
+- Кастомный `AbstractRoutingDataSource` (`ReplicationRoutingDataSource.kt`): определяет источник по флагу `isCurrentTransactionReadOnly`; слейв выбирается round-robin **парами** (`counter/2 % count`) — оба чтения (token-lookup + запрос) попадают на один узел, а запросы чередуются между слейвами.
+- Three independent HikariCP-пула: `masterDataSource`, `slaveDataSource(url)`, и `clientDataSource` как `LazyConnectionDataSourceProxy` + `@Primary`. Прокси обязателен: флаг `readOnly` выставляется транзакцией позже, чем получена connection, без proxy роутер всегда выбирал бы мастер.
+- `@Transactional(readOnly = true)` на всех читателях: `UserService.getById/search/validatePassword`, `TokenService.resolveUserId`, `UserRepository.count` / `SessionRepository.count`. Записывающие методы — обычный `@Transactional`.
+- `application.yml`: `spring.datasource.*` удалён; Liquibase привязан к мастеру.
+
+### Проверка роутинга (эмпирически, pg_stat_statements по узлам)
+
+После `register → login → 50× (search + get)` и сброса `pg_stat_statements` на слейвах:
+
+```
+postgres-master:  INSERT INTO users / sessions               ← только записи
+                  (SELECT COUNT(*): только Liquibase databasechangelog)
+
+postgres-slave-1: SELECT ... FROM sessions WHERE token=$1    49
+                  SELECT ... FROM users WHERE second_name LIKE... 47
+postgres-slave-2: SELECT ... FROM sessions WHERE token=$1    51
+                  SELECT ... FROM users WHERE second_name LIKE... 52
+```
+
+gauge-счётчики (после правки count()): slave-1 считает sessions, slave-2 — users;
+на мастере счётчики SELECT COUNT(*) перестали расти.
+
+Вывод: чтение не покидает слейвы (два слейва делят read-нагрузку поровну), на мастер попадают только INSERT/UPDATE/DELETE и Liquibase.
+
+### Запуск в Docker
+
+Окружение в `docker-compose.yml` для сервиса `app` использует имена-хостнеймы контейнеров (`postgres-master:5432`, `postgres-slave-1/2:5432`) — переменные `APP_DATASOURCE_*` и `SPRING_LIQUIBASE_*` без префикса `spring.` у кастомного свойства `app.datasource.*` (иначе Spring не свяжет env-переменные и приложение из контейнера будет ходить на `localhost:5432`). Healthcheck — TCP-проба через `/dev/tcp` (`curl` в образе `eclipse-temurin:25-jre` отсутствует).
+
+## Шаг 4. Load test после репликации (чтение ушло на слейвы)
+
+Тот же план JMeter (`user_reads.jmx`), те же уровни c=1/10/100/1000. Пул слейвов 25 (на c=1000 дополнительно проверены пулы 100 — результат не изменился, см. ниже), мастер — 25.
+
+| Уровень | search RPS | get RPS | Суммарно | search p50/p95/p99 | get p50/p95/p99 | Ошибки |
+|---|---|---|---|---|---|---|
+| c=1 | 230 | 230 | 460 | 2 / 4 / 5 мс | 1 / 3 / 4 мс | 0 |
+| c=10 | 1 903 | 1 903 | 3 806 | 3 / 4 / 6 мс | 2 / 3 / 4 мс | 0 |
+| c=100 | 2 886 | 2 886 | 5 772 | 13 / 36 / 53 мс | 11 / 32 / 49 мс | 0 |
+| c=1000 | 2 843 | 2 843 | 5 686 | 145 / 261 / 338 мс | 141 / 259 / 336 мс | 0 |
+
+### Что показывает сравнение с baseline (Шаг 1)
+
+- На малых уровнях (c=1..100) суммарный RPS ниже baseline на 10–40 %. Причина — накладные расходы маршрутизации: каждый запрос теперь выполняет **две** транзакции чтения (token-lookup + сам запрос) с BEGIN/COMMIT; при едином пуле в baseline те же два запроса шли с autocommit.
+- На c=1000 суммарный RPS **ниже baseline (5 686 vs 8 921)**. Это при том, что каждый слейв отвечает за ~половину нагрузки. Анализ узкого места по метрикам во время прогона:
+  - `hikaricp_connections_pending≈0`, `active≈49/100` — пулы подключений не исчерпаны;
+  - CPU во время прогона: **app ≈ 450–500 %** (5 ядер), **postgres-slave-1 ≈ 300–500 %**, **postgres-slave-2 ≈ 300 %** → суммарно > 10 ядер Docker Desktop VM;
+  - среднее время исполнения SQL на слейвах — 0.01–0.94 мс (по `pg_stat_statements`): сами запросы не медленные.
+- Контрольный эксперимент: при отключённом роутинге на 2-й слейв (оба пула → один слейв, код через один и тот же app) — 4 136 rps при 100 % CPU узла (**слейв ~500 % + app ~500 %**). Т.е. один standby обслуживает ~4 тыс. rps, два — ~5.7 тыс., и в обоих случаях стенд упирается в CPU VM, а не в PostgreSQL.
+
+**Вывод по нагруженному стенду**: репликация разнесла чтение по узлам (мастер разгружен — на нём только INSERT/UPDATE/прочее ~0 % CPU при read-нагрузке), но поскольку стенд является CPU-bound (Docker Desktop с 10 vCPU: JVM-приложение + 2 standby + мониторинг), суммарный потолок RPS на этом железе ниже, чем у одиночного сервера в baseline. На реальном стенде (отдельные хосты/машины) выигрыш будет проявляться по мере масштабирования read-нагрузки; здесь же зафиксирован предел стенда.
+
+## Шаг 5. Эксперимент с потерями транзакций: async vs sync quorum
+
+Методика: на мастере коммитим транзакции, затем `docker kill --signal=KILL` мастера (жесткий сбой без flush/stop) и смотрим, какие коммиты видны на слейвах — именно они были бы потеряны при failover (посмертное поднятие мастера для восстановления стенда к потерям не относится).
+
+### Async (исходное состояние)
+
+Стоп слейва + 3 коммита на мастере + убийство мастера → **3 потери из 3** при промоушене слейва (WAL остался только на упавшем мастере).
+
+### Sync quorum (ANY 2)
+
+`ALTER SYSTEM SET synchronous_standby_names = 'ANY 2 (pg_slave_1, pg_slave_2)'` + рестарт мастера. 3 коммита с аck обоим слейвам (latency 130–145 мс). Убийство мастера → **0 потерь**, оба слейва содержат все коммиты, любой можно промоутить.
+
+### Поведение при недоступности кворума
+
+Синхронная репликация «ANY 2»: если один слейв выключен, мастер блокирует запись >5 сек, ожидая ack недоступного участника. После возврата слейва отложенный коммит завершается.
+
+### Состояние после эксперимента
+
+`ALTER SYSTEM SET synchronous_standby_names=''` + рестарт → replication снова **async** (рабочая конфигурация); слейвы догнали WAL, счётчики сходятся; приложение healthy.
