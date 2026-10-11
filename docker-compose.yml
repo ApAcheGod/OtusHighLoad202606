@@ -1,5 +1,5 @@
 services:
-  postgres:
+  postgres-master:
     image: postgres:16
     ports:
       - "5432:5432"
@@ -9,6 +9,8 @@ services:
       POSTGRES_PASSWORD: otus_pass
     volumes:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./postgres/zz-replication-hba.sh:/docker-entrypoint-initdb.d/zz-replication-hba.sh:ro
+      - pg_master_data:/var/lib/postgresql/data
     command:
       - "postgres"
       - "-c"
@@ -19,44 +21,172 @@ services:
       - "pg_stat_statements.track=all"
       - "-c"
       - "track_io_timing=on"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "wal_keep_size=1024"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  postgres-slave-1:
+    image: postgres:16
+    entrypoint: ["/bin/bash", "/replication/standby-init.sh"]
+    ports:
+      - "5433:5432"
+    environment:
+      PRIMARY_HOST: postgres-master
+      REPLICA_USER: replica
+      REPLICA_PASSWORD: replica_pass
+      APPLICATION_NAME: pg_slave_1
+    volumes:
+      - ./postgres/standby-init.sh:/replication/standby-init.sh:ro
+      - pg_slave1_data:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+
+  postgres-slave-2:
+    image: postgres:16
+    entrypoint: ["/bin/bash", "/replication/standby-init.sh"]
+    ports:
+      - "5434:5432"
+    environment:
+      PRIMARY_HOST: postgres-master
+      REPLICA_USER: replica
+      REPLICA_PASSWORD: replica_pass
+      APPLICATION_NAME: pg_slave_2
+    volumes:
+      - ./postgres/standby-init.sh:/replication/standby-init.sh:ro
+      - pg_slave2_data:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+
   postgres_exporter:
     image: prometheuscommunity/postgres-exporter:latest
     ports:
       - "9187:9187"
     environment:
-      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres:5432/otus_highload?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres-master:5432/otus_highload?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
     command:
       - "--no-collector.wal"
     volumes:
       - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
     depends_on:
-      postgres:
+      postgres-master:
+        condition: service_healthy
+
+  postgres_exporter_slave1:
+    image: prometheuscommunity/postgres-exporter:latest
+    ports:
+      - "9188:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres-slave-1:5432/otus_highload?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
+    command:
+      - "--no-collector.wal"
+    volumes:
+      - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
+    depends_on:
+      postgres-slave-1:
+        condition: service_healthy
+
+  postgres_exporter_slave2:
+    image: prometheuscommunity/postgres-exporter:latest
+    ports:
+      - "9189:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres-slave-2:5432/otus_highload?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
+    command:
+      - "--no-collector.wal"
+    volumes:
+      - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
+    depends_on:
+      postgres-slave-2:
         condition: service_healthy
 
   app:
     build: .
     ports:
-      - "8080:8080"
+    - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/otus_highload
-      SPRING_DATASOURCE_USERNAME: otus
-      SPRING_DATASOURCE_PASSWORD: otus_pass
+      APP_DATASOURCE_MASTER_URL: jdbc:postgresql://postgres-master:5432/otus_highload
+      APP_DATASOURCE_MASTER_USERNAME: otus
+      APP_DATASOURCE_MASTER_PASSWORD: otus_pass
+      APP_DATASOURCE_SLAVE_URLS: jdbc:postgresql://postgres-slave-1:5432/otus_highload,jdbc:postgresql://postgres-slave-2:5432/otus_highload
+      APP_DATASOURCE_SLAVE_USERNAME: otus
+      APP_DATASOURCE_SLAVE_PASSWORD: otus_pass
+      SPRING_LIQUIBASE_URL: jdbc:postgresql://postgres-master:5432/otus_highload
+      SPRING_LIQUIBASE_USER: otus
+      SPRING_LIQUIBASE_PASSWORD: otus_pass
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
     depends_on:
-      postgres:
+      postgres-master:
         condition: service_healthy
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    ports:
+      - "8088:8080"
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
 
   prometheus:
     image: prom/prometheus:latest
@@ -97,4 +227,7 @@ services:
       - loki
 
 volumes:
+  pg_master_data:
+  pg_slave1_data:
+  pg_slave2_data:
   loki-data:

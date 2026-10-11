@@ -211,6 +211,23 @@ pg_stat_activity_count:
         usage: "GAUGE"
         description: "Number of waiting queries"
 
+pg_static:
+  query: |
+    SELECT
+      1 AS value,
+      current_setting('server_version') AS short_version,
+      'docker' AS release
+  metrics:
+    - value:
+        usage: "GAUGE"
+        description: "Static instance info (always 1)"
+    - short_version:
+        usage: "LABEL"
+        description: "PostgreSQL server version"
+    - release:
+        usage: "LABEL"
+        description: "Deployment type"
+
 pg_locks_summary:
   query: |
     SELECT

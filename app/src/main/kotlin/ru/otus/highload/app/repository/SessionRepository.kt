@@ -1,8 +1,10 @@
 package ru.otus.highload.app.repository
 
+import org.springframework.jdbc.core.ResultSetExtractor
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
 
 @Repository
@@ -17,6 +19,7 @@ class SessionRepository(
         jdbc.update(sql, params)
     }
 
+    @Transactional(readOnly = true)
     fun count(): Long {
         return jdbc.queryForObject("SELECT COUNT(*) FROM sessions", emptyMap<String, Any>(), Long::class.java) ?: 0
     }
@@ -24,7 +27,7 @@ class SessionRepository(
     fun findUserIdByToken(token: UUID): UUID? {
         val sql = "SELECT user_id FROM sessions WHERE token = :token"
         val params = MapSqlParameterSource("token", token)
-        return jdbc.query(sql, params, org.springframework.jdbc.core.ResultSetExtractor { rs ->
+        return jdbc.query(sql, params, ResultSetExtractor { rs ->
             if (rs.next()) rs.getObject("user_id") as UUID else null
         })
     }
