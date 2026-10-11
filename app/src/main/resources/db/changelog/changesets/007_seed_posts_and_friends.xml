@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="007_seed_posts_and_friends" author="n.alpatov">
+        <comment>Тестовые данные: дружественный граф + посты из posts.txt (размноженные)</comment>
+        <customChange class="ru.otus.highload.app.liquibase.PostsSeedChange">
+            <param name="postsPath" value="db/changelog/data/posts.txt"/>
+            <param name="userCount" value="1000"/>
+            <param name="powerUsers" value="60"/>
+            <param name="cycles" value="20"/>
+        </customChange>
+    </changeSet>
+
+    <changeSet id="008_posts_user_created_index" author="n.alpatov">
+        <comment>Индекс для бэкфилла ленты: посты конкретных друзей по времени</comment>
+        <createIndex indexName="idx_posts_user_created" tableName="posts">
+            <column name="user_id"/>
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
