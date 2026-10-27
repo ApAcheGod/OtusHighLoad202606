@@ -32,11 +32,12 @@ class PostService(
         )
         postRepository.save(post)
 
-        // Фан-аут: пост видят те, кто добавил автора в друзья.
-        val followers = friendRepository.findFollowerIds(userId)
+        // Фан-аут: дружба взаимная, поэтому findFriendIds(author) — это все,
+        // кому автор должен показать пост (и одновременно его друзья).
+        val friends = friendRepository.findFriendIds(userId)
         val score = createdAt.toEpochMilli()
         afterCommit {
-            feedCacheService.addPostToFeeds(followers, postId, userId, score)
+            feedCacheService.addPostToFeeds(friends, postId, userId, score)
         }
 
         return postId
@@ -48,31 +49,31 @@ class PostService(
 
     @Transactional
     fun updatePost(id: UUID, newText: String): Post? {
-        val post = postRepository.findById(id) ?: return null
         val userId = currentUserId()
-
-        if (post.userId != userId) {
-            throw IllegalArgumentException("Not post owner")
+        postRepository.update(id, userId, newText)?.let { return it }
+        postRepository.findById(id)?.let { post ->
+            if (post.userId != userId) {
+                throw IllegalArgumentException("Not post owner")
+            }
         }
-
-        post.text = newText
-        postRepository.update(post)
-        // Позиция поста в ленте определяется временем создания и не меняется при редактировании.
-        return post
+        return null
     }
 
     @Transactional
     fun deletePost(id: UUID) {
-        val post = postRepository.findById(id) ?: return
         val userId = currentUserId()
 
-        if (post.userId != userId) {
-            throw IllegalArgumentException("Not post owner")
+        if (postRepository.deleteById(id, userId)) {
+            afterCommit {
+                feedCacheService.removePostFromAllFeeds(id)
+            }
+            return
         }
 
-        postRepository.deleteById(id)
-        afterCommit {
-            feedCacheService.removePostFromAllFeeds(id)
+        postRepository.findById(id)?.let { post ->
+            if (post.userId != userId) {
+                throw IllegalArgumentException("Not post owner")
+            }
         }
     }
 

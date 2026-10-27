@@ -10,15 +10,25 @@ scrape_configs:
     static_configs:
       - targets: ['postgres_exporter:9187']
 
-  - job_name: 'postgres-exporter-slave1'
+  - job_name: 'postgres-exporter-worker1'
     scrape_interval: 5s
     static_configs:
-      - targets: ['postgres_exporter_slave1:9187']
+      - targets: ['postgres_exporter_worker1:9187']
 
-  - job_name: 'postgres-exporter-slave2'
+  - job_name: 'postgres-exporter-worker2'
     scrape_interval: 5s
     static_configs:
-      - targets: ['postgres_exporter_slave2:9187']
+      - targets: ['postgres_exporter_worker2:9187']
+
+  - job_name: 'postgres-exporter-worker3'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['postgres_exporter_worker3:9187']
+
+  - job_name: 'postgres-exporter-worker4'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['postgres_exporter_worker4:9187']
 
   - job_name: 'node-exporter'
     scrape_interval: 5s

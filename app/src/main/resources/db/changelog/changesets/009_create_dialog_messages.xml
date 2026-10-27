@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="009_create_dialog_messages" author="n.alpatov" dbms="postgresql">
+        <preConditions onFail="HALT">
+            <dbms type="postgresql"/>
+            <sqlCheck expectedResult="1">SELECT count(*) FROM pg_extension WHERE extname = 'citus'</sqlCheck>
+            <not>
+                <tableExists tableName="dialog_messages"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="dialog_messages">
+            <column name="pair_key" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="user_low_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="user_high_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="from_user_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="text" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMPTZ" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_message_id" type="UUID"/>
+        </createTable>
+
+        <addPrimaryKey tableName="dialog_messages"
+                       columnNames="pair_key, id"
+                       constraintName="pk_dialog_messages"/>
+
+        <createIndex indexName="idx_dialog_pair_created" tableName="dialog_messages">
+            <column name="pair_key"/>
+            <column name="created_at" descending="true"/>
+            <column name="id" descending="true"/>
+        </createIndex>
+
+        <createIndex indexName="uq_dialog_client_message" tableName="dialog_messages" unique="true">
+            <column name="pair_key"/>
+            <column name="client_message_id"/>
+        </createIndex>
+
+        <sql><![CDATA[
+            ALTER TABLE dialog_messages
+                ADD CONSTRAINT ck_dialog_pair
+                CHECK (user_low_id < user_high_id);
+
+            ALTER TABLE dialog_messages
+                ADD CONSTRAINT ck_dialog_pair_key_matches
+                CHECK (pair_key = user_low_id::text || ':' || user_high_id::text);
+
+            ALTER TABLE dialog_messages
+                ADD CONSTRAINT ck_dialog_from_is_participant
+                CHECK (from_user_id = user_low_id OR from_user_id = user_high_id);
+
+            ALTER TABLE dialog_messages
+                ADD CONSTRAINT ck_dialog_text_length
+                CHECK (char_length(text) <= 4096);
+        ]]></sql>
+
+        <sql><![CDATA[
+            SELECT create_distributed_table('dialog_messages', 'pair_key',
+                                            colocate_with := 'none', shard_count := 32);
+        ]]></sql>
+
+        <rollback>
+            <dropTable tableName="dialog_messages"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

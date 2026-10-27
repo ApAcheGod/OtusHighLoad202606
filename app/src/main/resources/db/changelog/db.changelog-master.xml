@@ -4,6 +4,14 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                    https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <includeAll path="db/changelog/changesets/"/>
+    <include file="changesets/001_create_users.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/002_create_sessions.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/003_load_people_data.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/004_create_search_index.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/005_create_friends_table.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/006_create_posts_table.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/007_seed_posts_and_friends.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/008_citus_distribute_core.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/009_create_dialog_messages.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

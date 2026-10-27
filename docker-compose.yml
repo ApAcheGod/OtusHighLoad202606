@@ -1,153 +1,199 @@
+x-citus-node: &citus-node
+  image: citusdata/citus:14.2.0-pg16
+  platform: linux/amd64
+  environment: &citus-env
+    POSTGRES_DB: otus_highload
+    POSTGRES_USER: otus
+    POSTGRES_PASSWORD: otus_pass
+    PGPASSWORD: otus_pass
+  entrypoint: ["/bin/bash", "-c"]
+  command: &citus-command
+    - |
+      set -e
+      install -m 600 -o postgres -g postgres /opt/citus-auth/pgpass /var/lib/postgresql/.pgpass
+      exec docker-entrypoint.sh postgres \
+        -c shared_preload_libraries=citus,pg_stat_statements \
+        -c wal_level=logical \
+        -c max_replication_slots=16 \
+        -c max_wal_senders=16 \
+        -c pg_stat_statements.max=10000 \
+        -c pg_stat_statements.track=all \
+        -c track_io_timing=on
+  healthcheck: &citus-healthcheck
+    test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
+    interval: 5s
+    timeout: 5s
+    retries: 20
+    start_period: 60s
+
 services:
-  postgres-master:
-    image: postgres:16
+  citus-coordinator:
+    <<: *citus-node
     ports:
       - "5432:5432"
-    environment:
-      POSTGRES_DB: otus_highload
-      POSTGRES_USER: otus
-      POSTGRES_PASSWORD: otus_pass
     volumes:
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./postgres/zz-replication-hba.sh:/docker-entrypoint-initdb.d/zz-replication-hba.sh:ro
-      - pg_master_data:/var/lib/postgresql/data
-    command:
-      - "postgres"
-      - "-c"
-      - "shared_preload_libraries=pg_stat_statements"
-      - "-c"
-      - "pg_stat_statements.max=10000"
-      - "-c"
-      - "pg_stat_statements.track=all"
-      - "-c"
-      - "track_io_timing=on"
-      - "-c"
-      - "wal_level=replica"
-      - "-c"
-      - "max_wal_senders=10"
-      - "-c"
-      - "max_replication_slots=10"
-      - "-c"
-      - "hot_standby=on"
-      - "-c"
-      - "wal_keep_size=1024"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      - ./postgres/citus-init.sql:/docker-entrypoint-initdb.d/002-citus-init.sql:ro
+      - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
+      - citus_coordinator_data:/var/lib/postgresql/data
 
-  postgres-slave-1:
-    image: postgres:16
-    entrypoint: ["/bin/bash", "/replication/standby-init.sh"]
+  citus-worker-1:
+    <<: *citus-node
     ports:
       - "5433:5432"
-    environment:
-      PRIMARY_HOST: postgres-master
-      REPLICA_USER: replica
-      REPLICA_PASSWORD: replica_pass
-      APPLICATION_NAME: pg_slave_1
     volumes:
-      - ./postgres/standby-init.sh:/replication/standby-init.sh:ro
-      - pg_slave1_data:/var/lib/postgresql/data
-    command:
-      - "postgres"
-      - "-c"
-      - "shared_preload_libraries=pg_stat_statements"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-    depends_on:
-      postgres-master:
-        condition: service_healthy
+      - ./postgres/citus-init.sql:/docker-entrypoint-initdb.d/002-citus-init.sql:ro
+      - ./postgres/citus-worker-init.sql:/docker-entrypoint-initdb.d/003-citus-worker-init.sql:ro
+      - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
+      - citus_worker1_data:/var/lib/postgresql/data
 
-  postgres-slave-2:
-    image: postgres:16
-    entrypoint: ["/bin/bash", "/replication/standby-init.sh"]
+  citus-worker-2:
+    <<: *citus-node
     ports:
       - "5434:5432"
-    environment:
-      PRIMARY_HOST: postgres-master
-      REPLICA_USER: replica
-      REPLICA_PASSWORD: replica_pass
-      APPLICATION_NAME: pg_slave_2
     volumes:
-      - ./postgres/standby-init.sh:/replication/standby-init.sh:ro
-      - pg_slave2_data:/var/lib/postgresql/data
-    command:
-      - "postgres"
-      - "-c"
-      - "shared_preload_libraries=pg_stat_statements"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U otus -d otus_highload"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
+      - ./postgres/citus-init.sql:/docker-entrypoint-initdb.d/002-citus-init.sql:ro
+      - ./postgres/citus-worker-init.sql:/docker-entrypoint-initdb.d/003-citus-worker-init.sql:ro
+      - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
+      - citus_worker2_data:/var/lib/postgresql/data
+
+  citus-worker-3:
+    <<: *citus-node
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./postgres/citus-init.sql:/docker-entrypoint-initdb.d/002-citus-init.sql:ro
+      - ./postgres/citus-worker-init.sql:/docker-entrypoint-initdb.d/003-citus-worker-init.sql:ro
+      - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
+      - citus_worker3_data:/var/lib/postgresql/data
+
+  citus-worker-4:
+    <<: *citus-node
+    profiles: ["extra"]
+    ports:
+      - "5436:5432"
+    volumes:
+      - ./postgres/citus-init.sql:/docker-entrypoint-initdb.d/002-citus-init.sql:ro
+      - ./postgres/citus-worker-init.sql:/docker-entrypoint-initdb.d/003-citus-worker-init.sql:ro
+      - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
+      - citus_worker4_data:/var/lib/postgresql/data
+
+  citus-init:
+    image: citusdata/citus:14.2.0-pg16
+    platform: linux/amd64
     depends_on:
-      postgres-master:
+      citus-coordinator:
         condition: service_healthy
+      citus-worker-1:
+        condition: service_healthy
+      citus-worker-2:
+        condition: service_healthy
+      citus-worker-3:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: otus_pass
+      PGUSER: otus
+      PGDATABASE: otus_highload
+    restart: "no"
+    command:
+      - bash
+      - -ceu
+      - |
+        for w in citus-worker-1 citus-worker-2 citus-worker-3; do
+          echo "Registering $$w"
+          psql -h citus-coordinator -v ON_ERROR_STOP=1 \
+            -c "SELECT citus_add_node('$$w', 5432) WHERE NOT EXISTS (SELECT 1 FROM pg_dist_node WHERE nodename = '$$w' AND nodeport = 5432);"
+        done
+        psql -h citus-coordinator -v ON_ERROR_STOP=1 \
+          -c "SELECT nodeid, nodename, nodeport, noderole, isactive FROM pg_dist_node ORDER BY nodename;"
 
   postgres_exporter:
     image: prometheuscommunity/postgres-exporter:latest
     ports:
       - "9187:9187"
     environment:
-      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres-master:5432/otus_highload?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@citus-coordinator:5432/otus_highload?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
     command:
       - "--no-collector.wal"
     volumes:
       - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
     depends_on:
-      postgres-master:
+      citus-coordinator:
         condition: service_healthy
 
-  postgres_exporter_slave1:
+  postgres_exporter_worker1:
     image: prometheuscommunity/postgres-exporter:latest
     ports:
       - "9188:9187"
     environment:
-      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres-slave-1:5432/otus_highload?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@citus-worker-1:5432/otus_highload?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
     command:
       - "--no-collector.wal"
     volumes:
       - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
     depends_on:
-      postgres-slave-1:
+      citus-worker-1:
         condition: service_healthy
 
-  postgres_exporter_slave2:
+  postgres_exporter_worker2:
     image: prometheuscommunity/postgres-exporter:latest
     ports:
       - "9189:9187"
     environment:
-      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@postgres-slave-2:5432/otus_highload?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@citus-worker-2:5432/otus_highload?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
     command:
       - "--no-collector.wal"
     volumes:
       - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
     depends_on:
-      postgres-slave-2:
+      citus-worker-2:
+        condition: service_healthy
+
+  postgres_exporter_worker3:
+    image: prometheuscommunity/postgres-exporter:latest
+    ports:
+      - "9190:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@citus-worker-3:5432/otus_highload?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
+    command:
+      - "--no-collector.wal"
+    volumes:
+      - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
+    depends_on:
+      citus-worker-3:
+        condition: service_healthy
+
+  # Метрики четвёртого воркера: нужен именно в момент решардинга, поэтому
+  # тоже под профилем `extra`. Пока профиль не активен, таргет
+  # postgres-exporter-worker4 в Prometheus горит DOWN — это ожидаемо.
+  postgres_exporter_worker4:
+    image: prometheuscommunity/postgres-exporter:latest
+    profiles: ["extra"]
+    ports:
+      - "9191:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://monitor:monitor_pass@citus-worker-4:5432/otus_highload?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yml
+    command:
+      - "--no-collector.wal"
+    volumes:
+      - ./prometheus/postgres_exporter/queries.yml:/etc/postgres_exporter/queries.yml
+    depends_on:
+      citus-worker-4:
         condition: service_healthy
 
   app:
     build: .
     ports:
-    - "8080:8080"
+      - "8080:8080"
     environment:
-      APP_DATASOURCE_MASTER_URL: jdbc:postgresql://postgres-master:5432/otus_highload
-      APP_DATASOURCE_MASTER_USERNAME: otus
-      APP_DATASOURCE_MASTER_PASSWORD: otus_pass
-      APP_DATASOURCE_SLAVE_URLS: jdbc:postgresql://postgres-slave-1:5432/otus_highload,jdbc:postgresql://postgres-slave-2:5432/otus_highload
-      APP_DATASOURCE_SLAVE_USERNAME: otus
-      APP_DATASOURCE_SLAVE_PASSWORD: otus_pass
-      SPRING_LIQUIBASE_URL: jdbc:postgresql://postgres-master:5432/otus_highload
+      APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
+      APP_DATASOURCE_USERNAME: otus
+      APP_DATASOURCE_PASSWORD: otus_pass
+      SPRING_LIQUIBASE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       SPRING_LIQUIBASE_USER: otus
       SPRING_LIQUIBASE_PASSWORD: otus_pass
     healthcheck:
@@ -157,8 +203,8 @@ services:
       retries: 5
       start_period: 30s
     depends_on:
-      postgres-master:
-        condition: service_healthy
+      citus-init:
+        condition: service_completed_successfully
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -228,7 +274,9 @@ services:
       - loki
 
 volumes:
-  pg_master_data:
-  pg_slave1_data:
-  pg_slave2_data:
+  citus_coordinator_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:
+  citus_worker4_data:
   loki-data:
