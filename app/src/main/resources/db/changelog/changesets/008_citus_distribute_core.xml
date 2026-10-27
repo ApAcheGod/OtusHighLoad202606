@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="008_citus_distribute_core" author="n.alpatov" dbms="postgresql">
+        <preConditions onFail="HALT" onFailMessage="Ожидается чистый Citus-стенд после changesets 001–007: users/friends/posts/sessions ещё локальные.">
+            <dbms type="postgresql"/>
+            <tableExists tableName="users"/>
+            <tableExists tableName="sessions"/>
+            <tableExists tableName="friends"/>
+            <tableExists tableName="posts"/>
+            <sqlCheck expectedResult="1">SELECT count(*) FROM pg_extension WHERE extname = 'citus'</sqlCheck>
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_dist_partition WHERE logicalrelid = 'users'::regclass</sqlCheck>
+        </preConditions>
+
+        <dropForeignKeyConstraint baseTableName="sessions" constraintName="fk_sessions_user"/>
+        <dropForeignKeyConstraint baseTableName="friends" constraintName="fk_friends_user"/>
+        <dropForeignKeyConstraint baseTableName="friends" constraintName="fk_friends_friend"/>
+        <dropForeignKeyConstraint baseTableName="posts" constraintName="fk_posts_user"/>
+
+        <dropIndex indexName="uq_friends_user_friend" tableName="friends"/>
+        <addPrimaryKey tableName="friends"
+                       columnNames="user_id, friend_id"
+                       constraintName="friends_pkey"/>
+
+        <dropPrimaryKey tableName="posts" constraintName="posts_pkey"/>
+        <createIndex indexName="idx_posts_id" tableName="posts">
+            <column name="id"/>
+        </createIndex>
+        <addPrimaryKey tableName="posts"
+                       columnNames="user_id, id"
+                       constraintName="posts_pkey"/>
+
+
+        <sql><![CDATA[
+            SELECT create_distributed_table('users', 'id', shard_count := 32, colocate_with := 'none');
+            SELECT create_reference_table('sessions');
+            SELECT create_distributed_table('friends', 'user_id', colocate_with := 'users');
+            SELECT create_distributed_table('posts', 'user_id', colocate_with := 'users');
+
+            SELECT truncate_local_data_after_distributing_table('public.users');
+            SELECT truncate_local_data_after_distributing_table('public.friends');
+            SELECT truncate_local_data_after_distributing_table('public.posts');
+        ]]></sql>
+    </changeSet>
+
+</databaseChangeLog>
