@@ -11,6 +11,8 @@ spring:
     change-log: classpath:/db/changelog/db.changelog-master.xml
 
 app:
+  feed:
+    max-size: 1000
   search:
     limit: 50
   datasource:

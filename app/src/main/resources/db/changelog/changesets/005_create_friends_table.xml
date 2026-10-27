@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="005_create_friends" author="n.alpatov">
+        <createTable tableName="friends">
+            <column name="user_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_friends_user"
+                             references="users(id)"/>
+            </column>
+            <column name="friend_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_friends_friend"
+                             references="users(id)"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="uq_friends_user_friend" tableName="friends" unique="true">
+            <column name="user_id"/>
+            <column name="friend_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
