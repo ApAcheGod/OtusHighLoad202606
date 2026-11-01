@@ -16,16 +16,11 @@ app:
   search:
     limit: 50
   datasource:
+    url: jdbc:postgresql://localhost:5432/otus_highload
+    username: otus
+    password: otus_pass
     pool-size: 25
     connection-timeout: 5000
-    master:
-      url: jdbc:postgresql://localhost:5432/otus_highload
-      username: otus
-      password: otus_pass
-    slave:
-      urls: jdbc:postgresql://localhost:5433/otus_highload,jdbc:postgresql://localhost:5434/otus_highload
-      username: otus
-      password: otus_pass
 
 logging:
   structured:

@@ -25,20 +25,24 @@ class FriendService(
             throw IllegalArgumentException("Cannot add yourself as friend")
         }
 
-        friendRepository.save(user.id, friendId)
+        friendRepository.saveMutual(user.id, friend.id)
 
-        val recentPosts = postRepository.findLatestByAuthor(friendId, feedCacheService.maxSize)
+        val friendPosts = postRepository.findLatestByAuthor(friend.id, feedCacheService.maxSize)
+        val myPosts = postRepository.findLatestByAuthor(user.id, feedCacheService.maxSize)
+
         afterCommit {
-            feedCacheService.warmFeed(user.id, recentPosts)
+            feedCacheService.warmFeed(user.id, friendPosts)
+            feedCacheService.warmFeed(friend.id, myPosts)
         }
     }
 
     @Transactional
     fun deleteFriend(userId: UUID, friendId: UUID) {
-        friendRepository.deleteByUserIdAndFriendId(userId, friendId)
+        friendRepository.deleteMutual(userId, friendId)
 
         afterCommit {
             feedCacheService.removeAuthorFromFeed(userId, friendId)
+            feedCacheService.removeAuthorFromFeed(friendId, userId)
         }
     }
 }

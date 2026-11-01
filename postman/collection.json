@@ -88,6 +88,213 @@
           ]
         }
       }
+    },
+    {
+      "name": "Register Peer (for dialog)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set('peer_user_id', jsonData.user_id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"Пётр\",\n  \"second_name\": \"Собеседник\",\n  \"birthdate\": \"1992-07-07\",\n  \"gender\": \"MALE\",\n  \"interests\": null,\n  \"biography\": null,\n  \"city\": \"Москва\",\n  \"password\": \"secret123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/user/register",
+          "host": ["{{base_url}}"],
+          "path": ["user", "register"]
+        }
+      }
+    },
+    {
+      "name": "Login Peer",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set('peer_token', jsonData.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{peer_user_id}}\",\n  \"password\": \"secret123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/login",
+          "host": ["{{base_url}}"],
+          "path": ["login"]
+        }
+      }
+    },
+    {
+      "name": "Send Dialog Message",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Один и тот же client_message_id делает повторную отправку идемпотентной",
+              "if (!pm.collectionVariables.get('client_message_id')) {",
+              "  pm.collectionVariables.set('client_message_id', pm.variables.replaceIn('{{$guid}}'));",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "var id = pm.response.json();",
+              "pm.test('response is message_id (UUID string)', () => {",
+              "  pm.expect(id, 'body must be a JSON string').to.be.a('string');",
+              "  pm.expect(id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);",
+              "});",
+              "pm.collectionVariables.set('message_id', id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"text\": \"Привет!\",\n  \"client_message_id\": \"{{client_message_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/dialog/{{peer_user_id}}/send",
+          "host": ["{{base_url}}"],
+          "path": ["dialog", "{{peer_user_id}}", "send"]
+        }
+      }
+    },
+    {
+      "name": "Send Dialog Message (retry, idempotent)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "var id = pm.response.json();",
+              "pm.test('повтор с тем же client_message_id вернул тот же message_id', () => {",
+              "  pm.expect(id).to.eql(pm.collectionVariables.get('message_id'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"text\": \"Привет!\",\n  \"client_message_id\": \"{{client_message_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/dialog/{{peer_user_id}}/send",
+          "host": ["{{base_url}}"],
+          "path": ["dialog", "{{peer_user_id}}", "send"]
+        }
+      }
+    },
+    {
+      "name": "List Dialog Messages",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "var items = pm.response.json();",
+              "pm.test('response is an array of messages', () => {",
+              "  pm.expect(items).to.be.an('array');",
+              "  items.forEach((m) => {",
+              "    pm.expect(m).to.have.property('id');",
+              "    pm.expect(m).to.have.property('text');",
+              "    pm.expect(m).to.have.property('from');",
+              "    pm.expect(m).to.have.property('to');",
+              "    pm.expect(m).to.have.property('created_at');",
+              "    pm.expect(new Date(m.created_at).toString()).not.to.be.equal('Invalid Date');",
+              "  });",
+              "});",
+              "if (pm.collectionVariables.get('message_id')) {",
+              "  pm.test('sent message is in the dialog', () => {",
+              "    pm.expect(items.map((m) => m.id)).to.include(pm.collectionVariables.get('message_id'));",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/dialog/{{peer_user_id}}/list?offset=0&limit=10",
+          "host": ["{{base_url}}"],
+          "path": ["dialog", "{{peer_user_id}}", "list"],
+          "query": [
+            { "key": "offset", "value": "0" },
+            { "key": "limit", "value": "10" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Dialog Messages (без пагинации — как в спецификации)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "var items = pm.response.json();",
+              "pm.test('без параметров отдаётся весь диалог', () => {",
+              "  pm.expect(items).to.be.an('array');",
+              "  items.forEach((m) => {",
+              "    pm.expect(m).to.have.property('from');",
+              "    pm.expect(m).to.have.property('to');",
+              "    pm.expect(m).to.have.property('text');",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/dialog/{{peer_user_id}}/list",
+          "host": ["{{base_url}}"],
+          "path": ["dialog", "{{peer_user_id}}", "list"]
+        }
+      }
     }
   ],
   "auth": {
@@ -111,6 +318,18 @@
     },
     {
       "key": "token",
+      "value": ""
+    },
+    {
+      "key": "peer_user_id",
+      "value": ""
+    },
+    {
+      "key": "peer_token",
+      "value": ""
+    },
+    {
+      "key": "client_message_id",
       "value": ""
     }
   ]

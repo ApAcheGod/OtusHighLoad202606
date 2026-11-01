@@ -26,8 +26,8 @@ docker compose down
 # 1. Собрать проект
 ./gradlew build
 
-# 2. Запустить PostgreSQL
-docker compose up -d postgres
+# 2. Запустить Citus-кластер (coordinator + 3 workers)
+docker compose up -d citus-coordinator citus-worker-1 citus-worker-2 citus-worker-3 citus-init
 
 # 3. Запустить приложение
 ./gradlew bootRun
@@ -41,8 +41,17 @@ docker compose up -d postgres
 |---|---|---|---|
 | POST | `/login` | нет | Аутентификация: `{"id": "uuid", "password": "..."}` → `{"token": "uuid"}` |
 | POST | `/user/register` | нет | Регистрация: `{"first_name": "...", "second_name": "...", "birthdate": "2000-01-01", "gender": "MALE", "interests": "...", "city": "...", "password": "..."}` → `{"user_id": "uuid"}` |
-| POST | `/user/get/{id}` | да (Bearer token) | Получение анкеты |
+| GET | `/user/get/{id}` | да (Bearer token) | Получение анкеты |
 | GET | `/user/search?first_name=...&last_name=...` | да (Bearer token) | Поиск анкет |
+| PUT | `/friend/set/{friendUserId}` | да (Bearer token) | Добавить друга (взаимно) |
+| PUT | `/friend/delete/{friendUserId}` | да (Bearer token) | Удалить друга (взаимно) |
+| POST | `/post/create` | да (Bearer token) | Создать пост: `{"text": "..."}` → `post_id` |
+| GET | `/post/get/{id}` | да (Bearer token) | Получить пост |
+| PUT | `/post/update` | да (Bearer token) | Обновить пост: `{"id": "uuid", "text": "..."}` |
+| PUT | `/post/delete/{id}` | да (Bearer token) | Удалить пост |
+| GET | `/post/feed?offset=0&limit=10` | да (Bearer token) | Лента друзей |
+| POST | `/dialog/{userId}/send` | да (Bearer token) | Отправить сообщение: `{"text": "...", "client_message_id"?: "uuid"}` → `message_id` |
+| GET | `/dialog/{userId}/list` | да (Bearer token) | История диалога: `[{"from","to","text"}]` (+ `id`, `created_at`); без параметров — весь диалог, `?offset=&limit=` опционально |
 
 ---
 
@@ -472,3 +481,124 @@ gauge-счётчики (после правки count()): slave-1 считает
 ### Состояние после эксперимента
 
 `ALTER SYSTEM SET synchronous_standby_names=''` + рестарт → replication снова **async** (рабочая конфигурация); слейвы догнали WAL, счётчики сходятся; приложение healthy.
+
+---
+
+# ДЗ: Диалоги и горизонтальное масштабирование (Citus)
+
+## Архитектура
+
+Вместо master/slave репликации (HW-5) — распределённая БД **Citus 14** поверх PostgreSQL 16:
+
+```
+                 ┌─────────────────┐
+   app :8080 ───►│ citus-coordinator│  (metadata + router, порт 5432)
+                 └────────┬────────┘
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+   citus-worker-1  citus-worker-2  citus-worker-3
+   (shards)         (shards)         (shards)
+```
+
+- Каждый воркер при initdb выполняет `citus_set_coordinator_host('citus-coordinator', 5432)`
+- Приложение ходит только в coordinator
+- Все ноды запускаются с `wal_level=logical`
+- Воркер `citus-worker-4` объявлен под профилем `extra` и поднимается только для решардинга: `docker compose --profile extra up -d citus-worker-4`.
+
+## Схема и шардирование
+
+| Таблица | Тип | Ключ | Примечание |
+|---|---|---|---|
+| `users` | distributed | `id` | 32 шарда |
+| `friends` | distributed | `user_id` | colocated с `users` |
+| `posts` | distributed | `user_id` | colocated с `users`; PK `(user_id, id)` — требование Citus |
+| `sessions` | reference | — | копии на воркерах |
+| `dialog_messages` | distributed | `pair_key` | app-filled `'low:high'`, `colocate_with := 'none'` |
+
+- **Ключ диалога — пара, а не автор.** Приложение нормализует пару в `pair_key = 'low:high'` (Citus 14.2 принимает одну колонку и запрещает GENERATED ALWAYS AS): переписки «звезды» (Леди Гага) разъезжаются по всем 32 шардам вместо hot-shard на одного автора, а `send`/`list` всегда содержат `pair_key` в WHERE → single-shard.
+
+## Решардинг без даунтайма
+
+`rebalance_table_shards('<таблица>')` переносит шарды colocation-группы через **logical replication**: чтение и запись продолжают работать, а на промоушене подписчика Citus берёт **короткий write-lock на перемещаемый шард**. Запросы, попавшие в это окно, Citus **не ретраит** — ретраить должен клиент (в точечном режиме `block_writes` шард-источник блокируется на всю копию). Перенос одного шарда вручную: `citus_move_shard_placement(<shardid>, 'from', 5432, 'to', 5432, 'auto')`.
+
+Предпосылки, без которых онлайн-перенос не работает 
+
+1. **`wal_level=logical` на всех нодах.** При дефолтном `replica` режим `auto` не откатывается на `block_writes`, а падает: `ERROR: logical decoding requires wal_level >= logical`.
+2. **Межузловая аутентификация.** Перенос выполняется на воркере-источнике, который подключается к воркеру-цели, а Citus **не переиспользует пароль клиента** — без межузловых кредей `fe_sendauth: no password supplied`. Решение: `postgres/.pgpass` монтируется на каждую ноду и при старте ставится в `$HOME/.pgpass` (0600 — git не хранит режим файла, а libpq игнорирует `.pgpass` с групповым доступом) + `PGPASSWORD` в окружении как страховка.
+3. **PRIMARY KEY или REPLICA IDENTITY у каждой таблицы colocation-группы.** Иначе перенос падает: `cannot use logical replication to transfer shards of the relation friends …`, а таблица без ключа делает неребалансируемой всю группу `users` (users+friends+posts). У `friends` — PK `(user_id, friend_id)` с distribution-колонкой в ключе, как того требует Citus.
+
+Скрипты в `scripts/citus/`:
+
+- `rebalance.sql` — показывает размещение и объём шардов (`citus_shards`), ребалансирует группы (группа `users` — одним вызовом, `dialog_messages` — отдельно) и проверяет результат; в комментариях — точечный перенос, `alter_distributed_table`, вывод ноды.
+- `add_worker.sh [host] [port]` — поднимает воркер (профиль `extra`), ждёт готовности (таймаут → явная ошибка), проверяет `wal_level` на координаторе **и** новом воркере, делает `citus_set_coordinator_host` → идемпотентный `citus_add_node` → ребалансировку.
+
+Сопутствующее: сменить **число** шардов — `alter_distributed_table('users', shard_count => 64, cascade_to_colocated => true)` (in-place; `ALTER TABLE … SET (citus.shard_count = N)` не работает — это GUC, а не reloption); плановый вывод ноды — `citus_drain_node` + `citus_remove_node`, физически потерянную — `citus_disable_node` → ребалансировка → `citus_remove_node`. `shard_count` выбирается с запасом (~20–30 GB на шард), рост покрывается добавлением нод. `dialog_messages` не colocated и не участвует в scatter-запросах — её `shard_count` можно поднять независимо (64/128), уменьшив хеш-скью.
+
+## Результаты
+
+### Scale-out / scale-in под нагрузкой
+
+```bash
+docker compose --profile extra up -d citus-worker-4   # 4-я нода
+scripts/citus/add_worker.sh citus-worker-4 5432       # регистрация + ребалансировка
+```
+
+| Шаг | Результат |
+|---|---|
+| `add_worker.sh` (регистрация + ребалансировка 2 групп) | **63 с**; шарды разъехались ровно по 8 на каждую таблицу на каждую из 4 нод; приложение **не перезапускалось** |
+| Вывод ноды: `citus_drain_node` + `citus_remove_node` + ребалансировка на 3 ноды | **55 с**; вернулись 11/11/10, `pg_dist_node` снова 3 записи |
+| Целостность данных | `users` 999 069, `friends` 7 880, `posts` 167 841, `dialog_messages` 46 685 — без потерь |
+| Colocation | проверено по `shardminvalue`: 0 рассинхронов `users`/`friends`/`posts` после scale-out и scale-in |
+| Доступность приложения | параллельно работала «молотилка»: 6 000 итераций (12 000 запросов `send` + `list`) → **0 ответов, отличных от 200** |
+
+Перенос одного шарда: `dialog_messages` (13 МБ) в режиме `auto` — **3.6 с**; шард colocated-группы `users` (users+friends+posts, 425 МБ) — **6.2 с**; `rebalance_table_shards('dialog_messages')` с реальным дисбалансом (11/11/10 → 10/12/10) — **4.3 с**.
+
+Ноль ошибок доказывает отсутствие *сбоев*, а не *задержек*: в окно промоушена запросы ждут write-lock; отдельно latency переезда не измерялась.
+
+### «Эффект Леди Гаги»: распределение и честный скью
+
+Тест (`load-test/jmeter/dialog_load.jmx`): звезда + 50 peers, 100 потоков, 60 с — peers пишут звезде и читают диалоги, звезда отвечает случайным peers. Итог: **49 413 запросов, 0 ошибок** — 100 потоков на 25-соединительном пуле Hikari отрабатывают очередью, а не отказами.
+
+| Группа запросов | Запросов | Ошибок | avg, мс | p95, мс | p99, мс | max, мс | req/s |
+|---|---|---|---|---|---|---|---|
+| peer lists dialog with gaga | 25 214 | 0 | 218 | 686 | 1083 | 2564 | 355 |
+| peer sends to gaga | 23 569 | 0 | 234 | 730 | 1112 | 3184 | 332 |
+| gaga sends to peer | 280 | 0 | 214 | 668 | 1229 | 2016 | 3.9 |
+| gaga lists dialog | 248 | 0 | 242 | 713 | 992 | 1477 | 3.5 |
+
+Состояние кластера на момент замера — 103 пары, 46 685 сообщений, из них 6 000 в одном «горячем» диалоге:
+
+```
+ citus-worker-1 |     11 | 8608 kB     -- 24.9 % данных
+ citus-worker-2 |     11 | 13 MB       -- 39.9 %
+ citus-worker-3 |     10 | 12 MB       -- 35.2 %
+```
+
+По шардам: min 32 kB, avg 1080 kB, max 3712 kB (`max/avg = 3.44`).
+
+1. **Эффект звезды снят на уровне ключа**: переписки Гаги есть на всех нодах, а не собраны в один hot-shard — это и была цель выбора `pair_key`.
+2. **Ребалансировка выравнивает количество шардов, а не объём данных.** Разброс по нодам 24.9/35.2/39.9 %.
+3. **Один горячий диалог ключом не лечится**: крупнейший шард (3.7 МБ при среднем 1.08 МБ) — это «горячий» диалог с 6 000 сообщений, вся его нагрузка легла на один шард
+
+## Проверка на живом кластере
+
+```bash
+# single-shard роутинг — pruning работает и для bind-параметра (Task Count: 1)
+docker compose exec -T citus-coordinator psql -U otus -d otus_highload -c \
+ "PREPARE q(text) AS SELECT id FROM dialog_messages WHERE pair_key=\$1
+  ORDER BY created_at ASC, id ASC OFFSET 0 LIMIT 10; EXPLAIN (COSTS OFF) EXECUTE q('x:y');"
+
+# число шардов и объём данных по нодам (число шардов и байты — разные вещи)
+docker compose exec -T citus-coordinator psql -U otus -d otus_highload -c \
+ "SELECT nodename, count(*) shards, pg_size_pretty(sum(shard_size)) data
+  FROM citus_shards WHERE table_name='dialog_messages'::regclass GROUP BY 1 ORDER BY 1;"
+
+# координатор не хранит данных (занимает килобайты)
+docker compose exec -T citus-coordinator psql -U otus -d otus_highload -c \
+ "SELECT relname, pg_size_pretty(pg_total_relation_size(oid)) FROM pg_class
+  WHERE relname IN ('users','posts','friends','dialog_messages') ORDER BY 2 DESC;"
+
+# решардинг: новый воркер (профиль extra) → регистрация → ребалансировка
+scripts/citus/add_worker.sh citus-worker-4 5432
+
+```
