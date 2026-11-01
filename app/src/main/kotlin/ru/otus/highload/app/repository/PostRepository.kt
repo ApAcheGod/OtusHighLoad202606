@@ -7,6 +7,11 @@ import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
 import ru.otus.highload.app.model.Post
 import ru.otus.highload.app.service.FeedItemData
+import java.sql.ResultSet
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 @Repository
@@ -24,7 +29,7 @@ class PostRepository(
             .addValue("id", post.id)
             .addValue("userId", post.userId)
             .addValue("text", post.text)
-            .addValue("createdAt", post.createdAt)
+            .addValue("createdAt", Instant.parse(post.createdAt).atOffset(ZoneOffset.UTC))
             .addValue("likes", post.likes)
         jdbc.update(sql, params)
     }
@@ -120,19 +125,20 @@ class PostRepository(
 }
 
 object PostRowMapper : RowMapper<Post> {
-    override fun mapRow(rs: java.sql.ResultSet, rowNum: Int): Post {
+    override fun mapRow(rs: ResultSet, rowNum: Int): Post {
+        val createdAt = rs.getObject("created_at", OffsetDateTime::class.java).toInstant()
         return Post(
             id = UUID.fromString(rs.getString("id")),
             userId = UUID.fromString(rs.getString("user_id")),
             text = rs.getString("text"),
-            createdAt = rs.getString("created_at"),
+            createdAt = DateTimeFormatter.ISO_INSTANT.format(createdAt),
             likes = rs.getInt("likes")
         )
     }
 }
 
 object FeedCandidateRowMapper : RowMapper<FeedItemData> {
-    override fun mapRow(rs: java.sql.ResultSet, rowNum: Int): FeedItemData {
+    override fun mapRow(rs: ResultSet, rowNum: Int): FeedItemData {
         return FeedItemData(
             postId = UUID.fromString(rs.getString("id")),
             authorId = UUID.fromString(rs.getString("user_id")),

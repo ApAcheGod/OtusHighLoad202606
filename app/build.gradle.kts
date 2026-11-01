@@ -12,6 +12,8 @@ tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
 dependencies {
     implementation(project(":utils"))
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.kafka:spring-kafka")
+    implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.postgresql:postgresql")
@@ -21,8 +23,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-liquibase")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.micrometer:micrometer-tracing-bridge-brave")
-    implementation(libs.kotlinxCoroutines)
-    implementation(libs.kotlinxCoroutinesReactor)
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 

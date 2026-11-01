@@ -16,7 +16,7 @@
                              foreignKeyName="fk_friends_friend"
                              references="users(id)"/>
             </column>
-            <column name="created_at" type="TIMESTAMP" defaultValueComputed="now()">
+            <column name="created_at" type="TIMESTAMPTZ" defaultValueComputed="now()">
                 <constraints nullable="false"/>
             </column>
         </createTable>

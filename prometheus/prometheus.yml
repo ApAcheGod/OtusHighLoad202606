@@ -5,6 +5,14 @@ scrape_configs:
     static_configs:
       - targets: ['app:8080']
 
+  - job_name: 'feed-ws'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    dns_sd_configs:
+      - names: ['feed-ws']
+        type: A
+        port: 8082
+
   - job_name: 'postgres-exporter'
     scrape_interval: 5s
     static_configs:
