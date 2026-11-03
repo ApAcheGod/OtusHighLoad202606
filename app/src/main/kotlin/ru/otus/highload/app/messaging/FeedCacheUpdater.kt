@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import ru.otus.highload.app.messaging.FeedTopics.USER_EVENTS
-import ru.otus.highload.app.service.InMemoryFeedCacheService
+import ru.otus.highload.app.service.FeedCacheService
 import ru.otus.highload.utils.events.FeedUserEvent
 import ru.otus.highload.utils.events.FeedUserOperation.POSTED
 import ru.otus.highload.utils.events.FeedUserOperation.REMOVED
@@ -15,14 +15,14 @@ import java.util.UUID
 
 @Component
 class FeedCacheUpdater(
-    private val feedCacheService: InMemoryFeedCacheService,
+    private val feedCacheService: FeedCacheService,
     private val mapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(FeedCacheUpdater::class.java)
 
     @KafkaListener(
         topics = [USER_EVENTS],
-        groupId = "feed-cache-\${random.uuid}",
+        groupId = "feed-cache",
         containerFactory = "feedListenerContainerFactory",
     )
     fun onUserEvent(record: ConsumerRecord<String, String>) {

@@ -671,3 +671,81 @@ docker compose up --build -d
 WebSocket Request, `ws://localhost:8081/post/feed/posted`, заголовок
 `Authorization: Bearer <friendToken>` скопировать из запроса
 
+# ДЗ-7. In-Memory СУБД с UDF
+
+## Архитектура
+
+```text
+Клиент
+  │  /dialog/{userId}/send | /dialog/{userId}/list
+  ▼
+app (Spring Boot) ── app.dialog.storage=citus|tarantool
+  │                        ├─ citus ──► CitusDialogStorage ──► dialog_messages (Citus)
+  │                        └─ tarantool ──► TarantoolDialogStorage ──► dialog_send / dialog_list (Lua UDF)
+  │  /login, сессии ────────► Redis (AOF, бессрочные session:*)
+  │  /post/feed ────────────► Redis Lua (feed:*:posts/authors/ready, ZSET+HASH, TTL 24 ч)
+  ▼
+feed-ws (WebSocket gateway) ── сессии из Redis, без SQL
+```
+
+- Kotlin не обращается к spaces Tarantool напрямую: только вызовы Lua UDF
+  `dialog_send` и `dialog_list`.
+- Сессии бессрочные; Redis пишет AOF
+  (`--appendfsync everysec`), сессии и лента переживают рестарт Redis.
+- Лента — общий Redis-кэш вместо JVM: один набор ключей `feed:<user>:posts /
+  authors / ready` на пользователя, видимый всем инстансам app; consumer-группа
+  Kafka `feed-cache` одна на все инстансы.
+- `dialog_id` — каноническая строка `меньший_UUID:больший_UUID`; история
+  сортируется по `(created_at_ns, id)`. Повторный `(dialog_id, client_message_id)`
+  возвращает исходный `message_id` без дубликата.
+
+## Схема Tarantool
+
+```text
+dialog_messages:        id uuid | dialog_id string | from_user_id uuid
+                        | to_user_id uuid | text string | created_at_ns int64
+  primary key: id
+  dialog_created (unique): (dialog_id, created_at_ns, id)   -- скан истории по GE
+
+dialog_client_messages: dialog_id string | client_message_id uuid | message_id uuid
+  primary key: (dialog_id, client_message_id)                -- идемпотентность
+```
+
+## Запуск
+
+```bash
+# Стенд (Redis 8.8.4 с AOF, Tarantool 3, Citus, Kafka)
+docker compose up --build -d
+
+# Переключение хранилища диалогов
+DIALOG_STORAGE=citus docker compose up -d app
+DIALOG_STORAGE=tarantool docker compose up -d app
+```
+
+
+## Нагрузочное сравнение Citus vs Tarantool
+
+JMeter 5.6.3: 100 потоков, ramp 10 с, 60 с замер, 50 пар диалогов
+(`dialog_load.jmx`). Для каждого backend: очистка диалогов, 15-секундный warmup,
+три прогона; в таблице — медиана трёх прогонов
+
+| Операция | Хранилище | RPS | p50 ms | p95 ms | p99 ms | Errors % |
+|----------|-----------|------|--------|--------|--------|----------|
+| send | citus | 749.65 | 114.00 | 290.00 | 431.00 | 0.00 |
+| list | citus | 673.10 | 110.00 | 287.00 | 429.00 | 0.00 |
+| send | tarantool | 4141.00 | 20.00 | 42.00 | 59.00 | 0.00 |
+| list | tarantool | 4269.23 | 17.00 | 35.00 | 52.00 | 0.00 |
+
+Итог: Tarantool на этом сценарии держит ~5.5× выше RPS и ~5.7× ниже p95,
+чем Citus.
+
+
+Ресурсы стенда:
+
+| Контейнер | citus cpu/mem | tarantool cpu/mem |
+|-----------|---------------|-------------------|
+| app | ~186% / 951 MiB | ~307% / 1.38 GiB |
+| citus-coordinator | ~151% / 417 MiB | — |
+| citus-worker-1 | ~82% / 483 MiB | — |
+| tarantool | — | ~41% / 88 MiB |
+| redis | ~4% / 6.3 MiB | ~9% / 6.4 MiB |

@@ -221,6 +221,12 @@ services:
       SPRING_LIQUIBASE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       SPRING_LIQUIBASE_USER: otus
       SPRING_LIQUIBASE_PASSWORD: otus_pass
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      APP_DIALOG_STORAGE: ${DIALOG_STORAGE:-citus}
+      APP_TARANTOOL_HOST: tarantool
+      APP_TARANTOOL_USERNAME: app
+      APP_TARANTOOL_PASSWORD: app_pass
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
       interval: 10s
@@ -232,16 +238,19 @@ services:
         condition: service_completed_successfully
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      tarantool:
+        condition: service_healthy
 
   feed-ws:
     build:
       context: .
       dockerfile: gateway/Dockerfile
     environment:
-      APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
-      APP_DATASOURCE_USERNAME: otus
-      APP_DATASOURCE_PASSWORD: otus_pass
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
     # Клиентский порт канала /post/feed/posted — напрямую, без балансировщика.
     # Внешний порт 8081 сохранён для совместимости с E2E-скриптами.
     # Один инстанс: при --scale > 1 публикация порта конфликтует, нужен LB.
@@ -258,6 +267,36 @@ services:
         condition: service_completed_successfully
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:8.8.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tarantool:
+    image: tarantool/tarantool:3
+    command: ["tarantool", "/opt/tarantool/init.lua"]
+    ports:
+      - "3301:3301"
+    volumes:
+      - ./tarantool:/opt/tarantool:ro
+      - tarantool_data:/var/lib/tarantool
+    healthcheck:
+      test: ["CMD", "tarantool", "-e", "local socket=require('socket'); local s=socket.tcp_connect('127.0.0.1',3301); if not s then os.exit(1) end; s:close(); os.exit(0, true)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -332,4 +371,6 @@ volumes:
   citus_worker2_data:
   citus_worker3_data:
   citus_worker4_data:
+  redis_data:
+  tarantool_data:
   loki-data:
