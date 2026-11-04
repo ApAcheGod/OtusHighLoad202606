@@ -42,7 +42,7 @@ class DialogController(
     private fun DialogMessage.toResponse() = MessageResponse(
         id = id,
         fromUserId = fromUserId,
-        toUserId = if (fromUserId == userLowId) userHighId else userLowId,
+        toUserId = toUserId,
         text = text,
         createdAt = DateTimeFormatter.ISO_INSTANT.format(createdAt.atOffset(ZoneOffset.UTC)),
     )

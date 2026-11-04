@@ -1,0 +1,6 @@
+local net_box = require('net.box')
+local conn = net_box.connect('app:app_pass@127.0.0.1:3301')
+conn:eval('box.space.dialog_messages:truncate()')
+conn:eval('box.space.dialog_client_messages:truncate()')
+conn:close()
+os.exit(0, true)

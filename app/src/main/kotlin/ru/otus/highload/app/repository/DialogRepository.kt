@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
 import ru.otus.highload.app.model.DialogMessage
+import ru.otus.highload.app.service.DialogService
 import java.sql.ResultSet
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -18,6 +19,7 @@ class DialogRepository(
 
     @Transactional
     fun save(message: DialogMessage, clientMessageId: UUID? = null): Boolean {
+        val (userLowId, userHighId) = DialogService.orderedPair(message.fromUserId, message.toUserId)
         val sql = """
             INSERT INTO dialog_messages
                 (pair_key, user_low_id, user_high_id, id, from_user_id, text, created_at, client_message_id)
@@ -26,9 +28,9 @@ class DialogRepository(
             ON CONFLICT (pair_key, client_message_id) DO NOTHING
         """.trimIndent()
         val params = MapSqlParameterSource()
-            .addValue("pairKey", pairKey(message.userLowId, message.userHighId))
-            .addValue("userLowId", message.userLowId)
-            .addValue("userHighId", message.userHighId)
+            .addValue("pairKey", message.dialogId)
+            .addValue("userLowId", userLowId)
+            .addValue("userHighId", userHighId)
             .addValue("id", message.id)
             .addValue("fromUserId", message.fromUserId)
             .addValue("text", message.text)
@@ -46,7 +48,7 @@ class DialogRepository(
         val params = MapSqlParameterSource()
             .addValue("pairKey", pairKey)
             .addValue("clientMessageId", clientMessageId)
-        return jdbc.query(sql, params) { rs, _ -> rs.getObject("id", UUID::class.java) }.firstOrNull()
+        return jdbc.query(sql, params) { rs, _ -> UUID.fromString(rs.getString("id")) }.firstOrNull()
     }
 
     @Transactional(readOnly = true)
@@ -54,7 +56,7 @@ class DialogRepository(
         val sql = buildString {
             append(
                 """
-                SELECT user_low_id, user_high_id, id, from_user_id, text, created_at
+                SELECT pair_key, user_low_id, user_high_id, id, from_user_id, text, created_at
                 FROM dialog_messages
                 WHERE pair_key = :pairKey
                 ORDER BY created_at ASC, id ASC
@@ -77,13 +79,18 @@ class DialogRepository(
     }
 
     private object DialogMessageRowMapper : RowMapper<DialogMessage> {
-        override fun mapRow(rs: ResultSet, rowNum: Int): DialogMessage = DialogMessage(
-            id = UUID.fromString(rs.getString("id")),
-            userLowId = UUID.fromString(rs.getString("user_low_id")),
-            userHighId = UUID.fromString(rs.getString("user_high_id")),
-            fromUserId = UUID.fromString(rs.getString("from_user_id")),
-            text = rs.getString("text"),
-            createdAt = rs.getObject("created_at", OffsetDateTime::class.java).toInstant(),
-        )
+        override fun mapRow(rs: ResultSet, rowNum: Int): DialogMessage {
+            val fromUserId = UUID.fromString(rs.getString("from_user_id"))
+            val low = UUID.fromString(rs.getString("user_low_id"))
+            val high = UUID.fromString(rs.getString("user_high_id"))
+            return DialogMessage(
+                id = UUID.fromString(rs.getString("id")),
+                dialogId = rs.getString("pair_key"),
+                fromUserId = fromUserId,
+                toUserId = if (fromUserId == low) high else low,
+                text = rs.getString("text"),
+                createdAt = rs.getObject("created_at", OffsetDateTime::class.java).toInstant(),
+            )
+        }
     }
 }

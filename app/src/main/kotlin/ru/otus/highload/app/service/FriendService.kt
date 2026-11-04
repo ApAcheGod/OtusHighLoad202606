@@ -11,7 +11,7 @@ class FriendService(
     private val friendRepository: FriendRepository,
     private val postRepository: PostRepository,
     private val userService: UserService,
-    private val feedCacheService: InMemoryFeedCacheService,
+    private val feedCacheService: FeedCacheService,
 ) {
 
     @Transactional

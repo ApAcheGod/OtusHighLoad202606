@@ -3,9 +3,11 @@ package ru.otus.highload.app.controller
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.data.redis.RedisConnectionFailureException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import ru.otus.highload.app.config.StorageUnavailableException
 import java.time.Instant
 
 @RestControllerAdvice
@@ -29,6 +31,14 @@ class ApiExceptionHandler {
     @ExceptionHandler(IllegalStateException::class)
     fun handleUnauthorized(ex: IllegalStateException): ResponseEntity<Map<String, Any>> =
         error(HttpStatus.UNAUTHORIZED, ex.message ?: "Unauthorized")
+
+    @ExceptionHandler(StorageUnavailableException::class)
+    fun handleStorageUnavailable(ex: StorageUnavailableException): ResponseEntity<Map<String, Any>> =
+        error(HttpStatus.SERVICE_UNAVAILABLE, ex.message ?: "Storage unavailable")
+
+    @ExceptionHandler(RedisConnectionFailureException::class)
+    fun handleRedisUnavailable(ex: RedisConnectionFailureException): ResponseEntity<Map<String, Any>> =
+        error(HttpStatus.SERVICE_UNAVAILABLE, "Redis unavailable")
 
     private fun error(status: HttpStatus, message: String): ResponseEntity<Map<String, Any>> =
         ResponseEntity.status(status).body(
