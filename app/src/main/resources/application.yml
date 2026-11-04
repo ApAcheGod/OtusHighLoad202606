@@ -13,6 +13,9 @@ spring:
 app:
   feed:
     max-size: 1000
+  kafka:
+    bootstrap-servers: localhost:9092
+    send-timeout-ms: 10000
   search:
     limit: 50
   datasource:

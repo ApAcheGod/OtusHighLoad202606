@@ -602,3 +602,72 @@ docker compose exec -T citus-coordinator psql -U otus -d otus_highload -c \
 scripts/citus/add_worker.sh citus-worker-4 5432
 
 ```
+
+
+---
+
+# ДЗ-6. Онлайн-обновление ленты: Kafka + WebSocket
+
+## Архитектура
+
+```text
+POST /post/create / DELETE /post/delete
+  → app: запись в БД → afterCommit → post.events (key=postId)
+       тело: {operation: CREATED|DELETED, postId, authorId, text?, createdAtMs}
+  → Kafka post.events
+  → PostEventsConsumer (группа feed-fanout): друзья автора
+       CREATED: tombstone-проверка (пост жив?) → персональные POSTED
+       DELETED: друзья на момент удаления  → персональные REMOVED
+  → Kafka feed.user.events (key=targetUserId)
+       тело: {operation: POSTED|REMOVED, postId, postText?, author_user_id?, createdAtMs?}
+     ├─ feed-cache-<uuid> → обновление ленты (GET /post/feed)
+     └─ ws-gateway-<uuid> → push POSTED в WS /post/feed/posted
+```
+
+## Решения
+
+- **Два топика, операция в теле.** `post.events` — бизнес-триггеры, ключ `postId`:
+  CREATED и DELETED одного поста в одной партиции, воркер обрабатывает их строго
+  по порядку → поздний POSTED после REMOVED невозможен на уровне воркера.
+  `feed.user.events` — персональные события, ключ `targetUserId`: порядок
+  `POSTED → REMOVED` внутри пользователя гарантирует Kafka : событие адресовано конкретному пользователю.
+- **Фан-аут вне HTTP-потока.** REST только пишет событие; размножение по друзьям
+  — конкурирующая группа `feed-fanout`, масштабируется партициями. Listener
+  дожидается ack всей пачки (`app.kafka.send-timeout-ms`), при ошибке offset
+  не коммитится — событие переобрабатывается.
+- **WS-контракт** (AsyncAPI, канал только для новых постов):
+  `{"postId","postText","author_user_id"}`. REMOVED в WS не публикуется.
+
+
+## Эффект Леди Гаги
+
+Push-модель не выполняет гигантский цикл по миллионам подписчиков в потоке
+HTTP-запроса: REST только пишет событие, фан-аут выполняет группа `feed-fanout`.
+Партиции `post.events` распределяют посты (ключ `postId`) между воркерами, поэтому
+поток постов горячего автора обрабатывается параллельно на разных инстансах.
+Размножение по друзьям одного поста — пачка асинхронных отправок с ожиданием ack.
+
+
+## Масштабирование Kafka
+
+- У `post.events` и `feed.user.events` по 6 партиций. Группа `feed-fanout`
+  масштабируется до числа партиций; лишние консьюмеры простаивают.
+- `feed-cache-<uuid>` и `ws-gateway-<uuid>` — broadcast-группы (своя на инстанс):
+  каждый инстанс получает все события, количество инстансов партициями не ограничено.
+- Compose: один KRaft broker, RF=1. В production — кластер из 3+ брокеров, RF=3,
+  `min.insync.replicas=2`, мониторинг ISR, consumer lag, ребалансов.
+
+## Запуск
+
+```bash
+# Полный стек (топики создаёт app при старте)
+docker compose up --build -d
+```
+
+## Проверка
+
+Коллекция `postman/hw6-feed-check.postman_collection.json`
+запросы по порядку. WS-пуш: New →
+WebSocket Request, `ws://localhost:8081/post/feed/posted`, заголовок
+`Authorization: Bearer <friendToken>` скопировать из запроса
+

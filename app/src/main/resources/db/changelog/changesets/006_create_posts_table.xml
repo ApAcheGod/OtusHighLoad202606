@@ -17,7 +17,7 @@
             <column name="text" type="TEXT">
                 <constraints nullable="false"/>
             </column>
-            <column name="created_at" type="TIMESTAMP" defaultValueComputed="now()">
+            <column name="created_at" type="TIMESTAMPTZ" defaultValueComputed="now()">
                 <constraints nullable="false"/>
             </column>
             <column name="likes" type="INT" defaultValueNumeric="0"/>

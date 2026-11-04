@@ -1,0 +1,35 @@
+server:
+  port: 8082
+
+app:
+  ws:
+    ping-interval-ms: 30000
+    send-timeout-ms: 10000
+    buffer-limit-bytes: 524288
+  datasource:
+    url: jdbc:postgresql://localhost:5432/otus_highload
+    username: otus
+    password: otus_pass
+    pool-size: 5
+    connection-timeout: 5000
+
+spring:
+  application:
+    name: feed-ws
+  kafka:
+    bootstrap-servers: localhost:9092
+
+logging:
+  structured:
+    format:
+      console: logstash
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

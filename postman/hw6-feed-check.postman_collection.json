@@ -1,0 +1,328 @@
+{
+  "info": {
+    "_postman_id": "e2b4c8a0-hw6-feed-check",
+    "name": "HW-6 Feed: Kafka + WebSocket check",
+    "description": "Ручная проверка пайплайна ДЗ-6: регистрация, дружба, публикация → post.events → fanout → feed.user.events → кэш ленты. WebSocket-пуш проверяется отдельно (New → WebSocket Request, ws://localhost:8081/post/feed/posted, заголовок Authorization: Bearer {{friendToken}}): при выполнении шага \"6. create post\" в WS придёт {postId, postText, author_user_id}, при \"8. create post (outsider)\" и \"9. delete post\" — ничего.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. register author",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set(\"authorId\", body.user_id);",
+              "console.log(\"authorId =\", body.user_id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"author\",\n  \"second_name\": \"feed\",\n  \"birthdate\": \"2000-01-01\",\n  \"gender\": \"MALE\",\n  \"interests\": null,\n  \"biography\": null,\n  \"city\": \"E2E\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "register"]
+        }
+      }
+    },
+    {
+      "name": "2. register friend",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set(\"friendId\", body.user_id);",
+              "console.log(\"friendId =\", body.user_id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"friend\",\n  \"second_name\": \"feed\",\n  \"birthdate\": \"2000-01-01\",\n  \"gender\": \"MALE\",\n  \"interests\": null,\n  \"biography\": null,\n  \"city\": \"E2E\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "register"]
+        }
+      }
+    },
+    {
+      "name": "3. register outsider",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set(\"outsiderId\", body.user_id);",
+              "console.log(\"outsiderId =\", body.user_id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"outsider\",\n  \"second_name\": \"feed\",\n  \"birthdate\": \"2000-01-01\",\n  \"gender\": \"FEMALE\",\n  \"interests\": null,\n  \"biography\": null,\n  \"city\": \"E2E\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "register"]
+        }
+      }
+    },
+    {
+      "name": "4. login author",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.collectionVariables.set(\"authorToken\", pm.response.json().token);",
+              "console.log(\"authorToken saved\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{authorId}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["login"]
+        }
+      }
+    },
+    {
+      "name": "5. login friend",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.collectionVariables.set(\"friendToken\", pm.response.json().token);",
+              "console.log(\"friendToken saved\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{friendId}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["login"]
+        }
+      }
+    },
+    {
+      "name": "5b. login outsider",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.collectionVariables.set(\"outsiderToken\", pm.response.json().token);",
+              "console.log(\"outsiderToken saved\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{outsiderId}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["login"]
+        }
+      }
+    },
+    {
+      "name": "6. friend/set (author → friend)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{authorToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/friend/set/{{friendId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["friend", "set", "{{friendId}}"]
+        }
+      }
+    },
+    {
+      "name": "7. create post (author) → ждём WS-пуш",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// ответ — JSON-строка с UUID",
+              "pm.collectionVariables.set(\"postId\", pm.response.json());",
+              "console.log(\"postId =\", pm.response.json());",
+              "console.log(\"Проверь WebSocket-вкладку: должен прийти push {postId, postText, author_user_id}\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{authorToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"text\": \"hello feed from postman\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/post/create",
+          "host": ["{{baseUrl}}"],
+          "path": ["post", "create"]
+        }
+      }
+    },
+    {
+      "name": "8. feed (friend) — пост должен быть в ленте",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{friendToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/post/feed?offset=0&limit=100",
+          "host": ["{{baseUrl}}"],
+          "path": ["post", "feed"],
+          "query": [
+            { "key": "offset", "value": "0" },
+            { "key": "limit", "value": "100" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "9. create post (outsider) → в WS ничего",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "console.log(\"Проверь WebSocket-вкладку: событие НЕ должно прийти (посторонний не друг)\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{outsiderToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"text\": \"outsider post\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/post/create",
+          "host": ["{{baseUrl}}"],
+          "path": ["post", "create"]
+        }
+      }
+    },
+    {
+      "name": "10. delete post (author) → в WS ничего, в ленте нет",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "console.log(\"Проверь WebSocket-вкладку: REMOVED в WS не уходит (по AsyncAPI)\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{authorToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/post/delete/{{postId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["post", "delete", "{{postId}}"]
+        }
+      }
+    },
+    {
+      "name": "11. feed (friend) — пост должен исчезнуть",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{friendToken}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/post/feed?offset=0&limit=100",
+          "host": ["{{baseUrl}}"],
+          "path": ["post", "feed"],
+          "query": [
+            { "key": "offset", "value": "0" },
+            { "key": "limit", "value": "100" }
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "password", "value": "feed-ws-e2e-password" },
+    { "key": "authorId", "value": "" },
+    { "key": "friendId", "value": "" },
+    { "key": "outsiderId", "value": "" },
+    { "key": "authorToken", "value": "" },
+    { "key": "friendToken", "value": "" },
+    { "key": "outsiderToken", "value": "" },
+    { "key": "postId", "value": "" }
+  ]
+}

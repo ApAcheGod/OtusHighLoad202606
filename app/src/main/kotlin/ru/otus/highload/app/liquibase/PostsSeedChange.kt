@@ -10,10 +10,10 @@ import ru.otus.highload.utils.uuidV7
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
-import java.sql.PreparedStatement
 import java.sql.ResultSet
-import java.sql.Timestamp
 import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 /**
  * Тестовые данные для ленты:
@@ -140,7 +140,7 @@ class PostsSeedChange : CustomTaskChange {
                     st.setString(1, uuidV7().toString())
                     st.setString(2, author)
                     st.setString(3, text)
-                    st.setTimestamp(4, Timestamp.from(Instant.ofEpochSecond(now - age)))
+                    st.setObject(4, OffsetDateTime.ofInstant(Instant.ofEpochSecond(now - age), ZoneOffset.UTC))
                     st.addBatch()
                     count++
                     if (count % BATCH == 0) st.executeBatch()

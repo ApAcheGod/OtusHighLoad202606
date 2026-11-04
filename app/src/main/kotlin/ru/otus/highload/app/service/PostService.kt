@@ -3,9 +3,11 @@ package ru.otus.highload.app.service
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.otus.highload.app.config.currentUserId
+import ru.otus.highload.app.messaging.PostEventProducer
 import ru.otus.highload.app.model.Post
-import ru.otus.highload.app.repository.FriendRepository
 import ru.otus.highload.app.repository.PostRepository
+import ru.otus.highload.utils.events.PostEvent
+import ru.otus.highload.utils.events.PostEventOperation
 import ru.otus.highload.utils.uuidV7
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -14,8 +16,8 @@ import java.util.UUID
 @Service
 class PostService(
     private val postRepository: PostRepository,
-    private val friendRepository: FriendRepository,
     private val feedCacheService: InMemoryFeedCacheService,
+    private val postEventProducer: PostEventProducer,
 ) {
 
     @Transactional
@@ -32,12 +34,13 @@ class PostService(
         )
         postRepository.save(post)
 
-        // Фан-аут: дружба взаимная, поэтому findFriendIds(author) — это все,
-        // кому автор должен показать пост (и одновременно его друзья).
-        val friends = friendRepository.findFriendIds(userId)
+        // Отложенная материализация: фан-аут по друзьям, запись в ленты и доставка
+        // WS-событий — асинхронно через Kafka
         val score = createdAt.toEpochMilli()
         afterCommit {
-            feedCacheService.addPostToFeeds(friends, postId, userId, score)
+            postEventProducer.postEvent(
+                PostEvent(PostEventOperation.CREATED, postId.toString(), userId.toString(), text, score)
+            )
         }
 
         return postId
@@ -62,17 +65,19 @@ class PostService(
     @Transactional
     fun deletePost(id: UUID) {
         val userId = currentUserId()
-
-        if (postRepository.deleteById(id, userId)) {
-            afterCommit {
-                feedCacheService.removePostFromAllFeeds(id)
-            }
-            return
+        val post = postRepository.findById(id) ?: return
+        if (post.userId != userId) {
+            throw IllegalArgumentException("Not post owner")
         }
-
-        postRepository.findById(id)?.let { post ->
-            if (post.userId != userId) {
-                throw IllegalArgumentException("Not post owner")
+        if (postRepository.deleteById(id, userId)) {
+            val score = Instant.parse(post.createdAt).toEpochMilli()
+            afterCommit {
+                postEventProducer.postEvent(
+                    PostEvent(
+                        PostEventOperation.DELETED, id.toString(), userId.toString(),
+                        createdAtMs = score,
+                    )
+                )
             }
         }
     }

@@ -185,6 +185,30 @@ services:
       citus-worker-4:
         condition: service_healthy
 
+  kafka:
+    image: apache/kafka:4.0.0
+    environment:
+      KAFKA_CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
   app:
     build: .
     ports:
@@ -193,6 +217,7 @@ services:
       APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       APP_DATASOURCE_USERNAME: otus
       APP_DATASOURCE_PASSWORD: otus_pass
+      APP_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_LIQUIBASE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       SPRING_LIQUIBASE_USER: otus
       SPRING_LIQUIBASE_PASSWORD: otus_pass
@@ -200,11 +225,39 @@ services:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 12
+      start_period: 60s
     depends_on:
       citus-init:
         condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+
+  feed-ws:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
+      APP_DATASOURCE_USERNAME: otus
+      APP_DATASOURCE_PASSWORD: otus_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # Клиентский порт канала /post/feed/posted — напрямую, без балансировщика.
+    # Внешний порт 8081 сохранён для совместимости с E2E-скриптами.
+    # Один инстанс: при --scale > 1 публикация порта конфликтует, нужен LB.
+    ports:
+      - "8081:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8082' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      citus-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
 
   node-exporter:
     image: prom/node-exporter:latest
