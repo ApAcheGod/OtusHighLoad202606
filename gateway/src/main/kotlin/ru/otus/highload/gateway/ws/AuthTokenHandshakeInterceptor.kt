@@ -1,6 +1,7 @@
 package ru.otus.highload.gateway.ws
 
 import org.slf4j.LoggerFactory
+import org.springframework.data.redis.RedisConnectionFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.http.server.ServerHttpRequest
 import org.springframework.http.server.ServerHttpResponse
@@ -28,7 +29,12 @@ class AuthTokenHandshakeInterceptor(
             reject(response, "missing token")
             return false
         }
-        val userId = sessionLookup.findUserIdByToken(token) ?: run {
+        val userId = try {
+            sessionLookup.findUserIdByToken(token)
+        } catch (ex: RedisConnectionFailureException) {
+            reject(response, "session storage unavailable", HttpStatus.SERVICE_UNAVAILABLE)
+            return false
+        } ?: run {
             reject(response, "invalid token")
             return false
         }
@@ -57,9 +63,13 @@ class AuthTokenHandshakeInterceptor(
         }
     }
 
-    private fun reject(response: ServerHttpResponse, reason: String) {
+    private fun reject(
+        response: ServerHttpResponse,
+        reason: String,
+        status: HttpStatus = HttpStatus.UNAUTHORIZED,
+    ) {
         log.debug("WS handshake rejected: {}", reason)
-        response.setStatusCode(HttpStatus.UNAUTHORIZED)
+        response.setStatusCode(status)
     }
 
     companion object {

@@ -6,16 +6,15 @@ app:
     ping-interval-ms: 30000
     send-timeout-ms: 10000
     buffer-limit-bytes: 524288
-  datasource:
-    url: jdbc:postgresql://localhost:5432/otus_highload
-    username: otus
-    password: otus_pass
-    pool-size: 5
-    connection-timeout: 5000
 
 spring:
   application:
     name: feed-ws
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2s
   kafka:
     bootstrap-servers: localhost:9092
 

@@ -16,7 +16,7 @@ import java.util.UUID
 @Service
 class PostService(
     private val postRepository: PostRepository,
-    private val feedCacheService: InMemoryFeedCacheService,
+    private val feedCacheService: FeedCacheService,
     private val postEventProducer: PostEventProducer,
 ) {
 

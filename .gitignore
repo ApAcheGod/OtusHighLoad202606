@@ -45,3 +45,4 @@ bin/
 jmeter.log
 res.csv
 report/
+load-test/jmeter/results/
