@@ -8,7 +8,7 @@ spring:
     server:
       port: 9092
   liquibase:
-    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/users}
+    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5000/users}
     user: ${APP_DATASOURCE_USERNAME:otus}
     password: ${APP_DATASOURCE_PASSWORD:otus_pass}
     change-log: classpath:/db/changelog/db.changelog-master.xml
@@ -18,11 +18,11 @@ app:
     limit: 50
   datasource:
     master:
-      url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/users}
+      url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5000/users}
       username: ${APP_DATASOURCE_USERNAME:otus}
       password: ${APP_DATASOURCE_PASSWORD:otus_pass}
     slave:
-      url: ${APP_DATASOURCE_SLAVE_URL:jdbc:postgresql://localhost:5432/users}
+      url: ${APP_DATASOURCE_SLAVE_URL:jdbc:postgresql://localhost:5001/users}
       username: ${APP_DATASOURCE_SLAVE_USERNAME:otus}
       password: ${APP_DATASOURCE_SLAVE_PASSWORD:otus_pass}
     pool-size: ${APP_DATASOURCE_POOL_SIZE:60}

@@ -265,7 +265,7 @@ services:
       SPRING_LIQUIBASE_PASSWORD: otus_pass
       APP_CHAT_SERVICE_URL: http://chat-service:8083
       SPRING_GRPC_CLIENT_CHANNEL_DEFAULT_TARGET: auth-service:9090
-      SPRING_GRPC_CLIENT_CHANNEL_USER_SERVICE_TARGET: user-service:9092
+      SPRING_GRPC_CLIENT_CHANNEL_USER_SERVICE_TARGET: user-nginx:9092
       SPRING_GRPC_CLIENT_CHANNEL_POST_SERVICE_TARGET: post-service:9093
       SPRING_GRPC_CLIENT_CHANNEL_FRIEND_SERVICE_TARGET: friend-service:9094
       SPRING_GRPC_CLIENT_CHANNEL_FEED_SERVICE_TARGET: feed-service:9095
@@ -291,7 +291,7 @@ services:
         condition: service_started
       auth-service:
         condition: service_started
-      user-service:
+      user-nginx:
         condition: service_started
       post-service:
         condition: service_started
@@ -456,24 +456,77 @@ services:
       resources:
         limits:
           memory: 256m
-  user-service:
+  user-haproxy:
+    image: haproxy:3.4.7-alpine
+    ports:
+      - "54300:5000"
+      - "5001:5001"
+      - "8404:8404"
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    sysctls:
+      - net.core.somaxconn=4096
+      - net.ipv4.ip_local_port_range=10240 65535
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8404/ >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+  user-nginx:
+    image: nginx:1.30.6-alpine
+    ports:
+      - "8085:8085"
+      - "9092:9092"
+    volumes:
+      - ./nginx/user-service.conf:/etc/nginx/nginx.conf:ro
+    sysctls:
+      - net.core.somaxconn=4096
+      - net.ipv4.ip_local_port_range=10240 65535
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8085/actuator/health 2>/dev/null | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+      start_interval: 1s
+    depends_on:
+      user-service-1:
+        condition: service_started
+      user-service-2:
+        condition: service_started
+
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+  user-service-1:
     build:
       context: .
       dockerfile: Dockerfile
       target: user-service
-    ports:
-      - "8085:8085"
-      - "9092:9092"
-    environment:
+    environment: &user-service-env
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
-      APP_DATASOURCE_URL: jdbc:postgresql://user-db:5432/users
-      APP_DATASOURCE_SLAVE_URL: jdbc:postgresql://user-db-slave-1:5432/users
+      APP_DATASOURCE_URL: jdbc:postgresql://user-haproxy:5000/users
+      APP_DATASOURCE_SLAVE_URL: jdbc:postgresql://user-haproxy:5001/users
       APP_DATASOURCE_USERNAME: otus
       APP_DATASOURCE_PASSWORD: otus_pass
       MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "0.01"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
-    healthcheck:
+    healthcheck: &user-service-healthcheck
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9092' || exit 1"]
       interval: 10s
       timeout: 5s
@@ -481,9 +534,22 @@ services:
       start_period: 60s
       start_interval: 1s
     depends_on:
-      user-db:
+      user-haproxy:
         condition: service_healthy
-      user-db-slave-1:
+
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+  user-service-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: user-service
+    environment: *user-service-env
+    healthcheck: *user-service-healthcheck
+    depends_on:
+      user-haproxy:
         condition: service_healthy
 
     deploy:
@@ -538,7 +604,7 @@ services:
       APP_DATASOURCE_USERNAME: otus
       APP_DATASOURCE_PASSWORD: otus_pass
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "8"
-      SPRING_GRPC_CLIENT_CHANNEL_USER_SERVICE_TARGET: user-service:9092
+      SPRING_GRPC_CLIENT_CHANNEL_USER_SERVICE_TARGET: user-nginx:9092
       MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
@@ -551,7 +617,7 @@ services:
     depends_on:
       citus-init:
         condition: service_completed_successfully
-      user-service:
+      user-nginx:
         condition: service_started
 
     deploy:
