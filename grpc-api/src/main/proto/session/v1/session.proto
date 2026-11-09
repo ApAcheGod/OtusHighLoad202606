@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package session.v1;
+
+option java_multiple_files = true;
+option java_package = "ru.otus.highload.grpc.session.v1";
+
+service SessionService {
+  rpc Create(CreateRequest) returns (CreateResponse);
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Count(CountRequest) returns (CountResponse);
+}
+
+message CreateRequest {
+  string user_id = 1;
+}
+
+message CreateResponse {
+  string token = 1;
+}
+
+message AuthenticateRequest {
+  string token = 1;
+}
+
+message AuthenticateResponse {
+  string user_id = 1;
+}
+
+message DeleteRequest {
+  string token = 1;
+}
+
+message DeleteResponse {}
+
+message CountRequest {}
+
+message CountResponse {
+  int64 count = 1;
+}

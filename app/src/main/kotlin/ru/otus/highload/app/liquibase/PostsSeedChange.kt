@@ -15,12 +15,6 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
-/**
- * Тестовые данные для ленты:
- * - дружественный граф для первых N пользователей (в обе стороны);
- * - посты из posts.txt, размноженные по «активным» авторам (у каждого > 1000 постов,
- *   чтобы проверять ограничение ленты в 1000 записей).
- */
 class PostsSeedChange : CustomTaskChange {
 
     private var fileOpener: ResourceAccessor? = null
@@ -33,7 +27,6 @@ class PostsSeedChange : CustomTaskChange {
         this.postsPath = postsPath
     }
 
-    // Liquibase вызывает сеттеры через рефлексию со значениями типа String
     fun setUserCount(userCount: String) {
         this.userCount = userCount.toInt()
     }
@@ -84,16 +77,13 @@ class PostsSeedChange : CustomTaskChange {
     private fun seedFriends(connection: java.sql.Connection, users: List<String>): Int {
         val pairs = LinkedHashSet<Pair<String, String>>()
         for ((i, user) in users.withIndex()) {
-            // близкие соседи
             for (d in 1..3) {
                 val other = users[(i + d) % users.size]
                 if (other != user) pairs.add(user to other)
             }
-            // каждый видит активных авторов
             val power = users[i % minOf(powerUsers, users.size)]
             if (power != user) pairs.add(user to power)
         }
-        // обратные рёбра, чтобы авторы видели своих подписчиков и наоборот
         val all = LinkedHashSet<Pair<String, String>>()
         for ((a, b) in pairs) {
             all.add(a to b)

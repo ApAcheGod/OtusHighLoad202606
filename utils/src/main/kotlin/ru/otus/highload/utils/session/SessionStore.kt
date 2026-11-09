@@ -5,5 +5,6 @@ import java.util.UUID
 interface SessionStore {
     fun create(token: UUID, userId: UUID)
     fun resolveUserId(token: UUID): UUID?
+    fun delete(token: UUID)
     fun count(): Long
 }

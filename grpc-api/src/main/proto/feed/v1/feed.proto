@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package feed.v1;
+
+option java_multiple_files = true;
+option java_package = "ru.otus.highload.grpc.feed.v1";
+
+import "post/v1/post.proto";
+
+service FeedService {
+  rpc GetFeed(GetFeedRequest) returns (GetFeedResponse);
+  rpc Warm(WarmRequest) returns (WarmResponse);
+  rpc RemoveAuthor(RemoveAuthorRequest) returns (RemoveAuthorResponse);
+}
+
+message GetFeedRequest {
+  string user_id = 1;
+  int32 offset = 2;
+  int32 limit = 3;
+}
+
+message GetFeedResponse {
+  repeated post.v1.Post posts = 1;
+}
+
+message WarmRequest {
+  string user_id = 1;
+  repeated post.v1.FeedItem items = 2;
+}
+
+message WarmResponse {}
+
+message RemoveAuthorRequest {
+  string owner_id = 1;
+  string author_id = 2;
+}
+
+message RemoveAuthorResponse {}

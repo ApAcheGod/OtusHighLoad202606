@@ -15,8 +15,27 @@ datasources:
 
   - name: Loki
     type: loki
+    uid: loki
     access: proxy
     url: http://loki:3100
     isDefault: false
     jsonData:
       maxLines: 1000
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: 'loki'
+        filterBySpanID: false
+        filterByTraceID: true
+
+  - name: Chat Service Metrics
+    type: prometheus
+    access: proxy
+    url: http://chat-service:8083/actuator/prometheus
+    isDefault: false

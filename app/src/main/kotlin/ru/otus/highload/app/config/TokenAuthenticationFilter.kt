@@ -3,7 +3,8 @@ package ru.otus.highload.app.config
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
-import org.springframework.data.redis.RedisConnectionFailureException
+import io.grpc.Status
+import io.grpc.StatusRuntimeException
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Component
@@ -34,9 +35,12 @@ class TokenAuthenticationFilter(
             if (token != null) {
                 val userId = try {
                     tokenService.resolveUserId(token)
-                } catch (ex: RedisConnectionFailureException) {
-                    response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Session storage unavailable")
-                    return
+                } catch (ex: StatusRuntimeException) {
+                    if (ex.status.code == Status.Code.UNAVAILABLE || ex.status.code == Status.Code.DEADLINE_EXCEEDED) {
+                        response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Auth service unavailable")
+                        return
+                    }
+                    throw ex
                 }
                 if (userId != null) {
                     val auth = UsernamePasswordAuthenticationToken(
