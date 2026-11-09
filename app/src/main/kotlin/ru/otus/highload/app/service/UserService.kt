@@ -1,56 +1,97 @@
 package ru.otus.highload.app.service
 
+import io.grpc.StatusRuntimeException
 import io.micrometer.core.instrument.MeterRegistry
-import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
+import ru.otus.highload.app.model.Gender
 import ru.otus.highload.app.model.RegisterRequest
 import ru.otus.highload.app.model.User
-import ru.otus.highload.app.repository.UserRepository
-import ru.otus.highload.utils.uuidV7
+import ru.otus.highload.grpc.user.v1.CountRequest
+import ru.otus.highload.grpc.user.v1.GetByIdRequest
+import ru.otus.highload.grpc.user.v1.RegisterRequest as GrpcRegisterRequest
+import ru.otus.highload.grpc.user.v1.SearchRequest
+import ru.otus.highload.grpc.user.v1.UserServiceGrpc
+import ru.otus.highload.grpc.user.v1.ValidateCredentialsRequest
+import java.time.Duration
+import java.time.LocalDate
 import java.util.UUID
 
 @Service
 class UserService(
-    private val userRepository: UserRepository,
-    private val passwordEncoder: PasswordEncoder,
-    private val meterRegistry: MeterRegistry,
+    private val userStub: UserServiceGrpc.UserServiceBlockingStub,
+    meterRegistry: MeterRegistry,
 ) {
     private val registrationsCounter = meterRegistry.counter("app_registrations_total", "description", "Total number of user registrations")
 
-    @Transactional
     fun register(request: RegisterRequest): UUID {
-        val id = uuidV7()
-        val encodedPassword = passwordEncoder.encode(request.password) ?: error("Password encoding failed")
-        val user = User(
-            id = id,
-            firstName = request.firstName,
-            secondName = request.secondName,
-            birthdate = request.birthdate,
-            gender = request.gender,
-            interests = request.interests,
-            biography = request.biography,
-            city = request.city,
-            passwordHash = encodedPassword,
-        )
-        userRepository.save(user)
+        val response = userStub.withDeadlineAfter(RPC_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .register(
+                GrpcRegisterRequest.newBuilder()
+                    .setFirstName(request.firstName)
+                    .setSecondName(request.secondName)
+                    .setBirthdate(request.birthdate.toString())
+                    .setGender(
+                        when (request.gender) {
+                            Gender.MALE -> ru.otus.highload.grpc.user.v1.Gender.MALE
+                            Gender.FEMALE -> ru.otus.highload.grpc.user.v1.Gender.FEMALE
+                        }
+                    )
+                    .apply {
+                        request.interests?.let { setInterests(it) }
+                        request.biography?.let { setBiography(it) }
+                        request.city?.let { setCity(it) }
+                    }
+                    .setPassword(request.password)
+                    .build()
+            )
         registrationsCounter.increment()
-        return id
+        return UUID.fromString(response.userId)
     }
 
-    @Transactional(readOnly = true)
     fun getById(id: UUID): User? {
-        return userRepository.findById(id)
+        val response = userStub.withDeadlineAfter(RPC_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .getById(GetByIdRequest.newBuilder().setId(id.toString()).build())
+        return response.user.takeIf { it.id.isNotEmpty() }?.toModel()
     }
 
-    @Transactional(readOnly = true)
     fun search(firstName: String, secondName: String): List<User> {
-        return userRepository.search(firstName, secondName)
+        val response = userStub.withDeadlineAfter(RPC_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .search(SearchRequest.newBuilder().setFirstName(firstName).setSecondName(secondName).build())
+        return response.usersList.map { it.toModel() }
     }
 
-    @Transactional(readOnly = true)
     fun validatePassword(id: UUID, password: String): Boolean {
-        val user = userRepository.findById(id) ?: return false
-        return passwordEncoder.matches(password, user.passwordHash)
+        val response = userStub.withDeadlineAfter(VALIDATE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .validateCredentials(ValidateCredentialsRequest.newBuilder().setId(id.toString()).setPassword(password).build())
+        return response.valid
+    }
+
+    fun countUsers(): Long = try {
+        userStub.withDeadlineAfter(RPC_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .count(CountRequest.getDefaultInstance()).count
+    } catch (ex: StatusRuntimeException) {
+        0L
+    }
+
+    private fun ru.otus.highload.grpc.user.v1.UserProfile.toModel(): User =
+        User(
+            id = UUID.fromString(id),
+            firstName = firstName,
+            secondName = secondName,
+            birthdate = LocalDate.parse(birthdate),
+            gender = when (gender) {
+                ru.otus.highload.grpc.user.v1.Gender.MALE -> Gender.MALE
+                ru.otus.highload.grpc.user.v1.Gender.FEMALE -> Gender.FEMALE
+                else -> throw IllegalArgumentException("unexpected gender $gender")
+            },
+            interests = interests.takeIf { it.isNotEmpty() },
+            biography = biography.takeIf { it.isNotEmpty() },
+            city = city.takeIf { it.isNotEmpty() },
+            passwordHash = "",
+        )
+
+    companion object {
+        private val RPC_TIMEOUT = Duration.ofMillis(500)
+        private val VALIDATE_TIMEOUT = Duration.ofSeconds(2)
     }
 }

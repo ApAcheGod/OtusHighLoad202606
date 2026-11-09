@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package post.v1;
+
+option java_multiple_files = true;
+option java_package = "ru.otus.highload.grpc.post.v1";
+
+service PostService {
+  rpc Create(CreateRequest) returns (CreateResponse);
+  rpc GetById(GetByIdRequest) returns (GetByIdResponse);
+  rpc GetByIds(GetByIdsRequest) returns (GetByIdsResponse);
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc ListLatestByAuthor(ListLatestByAuthorRequest) returns (ListLatestByAuthorResponse);
+  rpc GetFriendFeedCandidates(GetFriendFeedCandidatesRequest) returns (GetFriendFeedCandidatesResponse);
+}
+
+message Post {
+  string id = 1;
+  string author_id = 2;
+  string text = 3;
+  int64 created_at_ms = 4;
+  int32 likes = 5;
+}
+
+message FeedItem {
+  string post_id = 1;
+  string author_id = 2;
+  int64 score = 3;
+}
+
+message CreateRequest {
+  string author_id = 1;
+  string text = 2;
+}
+
+message CreateResponse {
+  string post_id = 1;
+}
+
+message GetByIdRequest {
+  string id = 1;
+}
+
+message GetByIdResponse {
+  Post post = 1;
+}
+
+message GetByIdsRequest {
+  repeated string ids = 1;
+}
+
+message GetByIdsResponse {
+  repeated Post posts = 1;
+}
+
+message UpdateRequest {
+  string id = 1;
+  string author_id = 2;
+  string text = 3;
+}
+
+message UpdateResponse {
+  Post post = 1;
+}
+
+message DeleteRequest {
+  string id = 1;
+  string author_id = 2;
+}
+
+message DeleteResponse {
+  bool deleted = 1;
+}
+
+message ListLatestByAuthorRequest {
+  string author_id = 1;
+  int32 limit = 2;
+}
+
+message ListLatestByAuthorResponse {
+  repeated FeedItem items = 1;
+}
+
+message GetFriendFeedCandidatesRequest {
+  string user_id = 1;
+  int32 limit = 2;
+}
+
+message GetFriendFeedCandidatesResponse {
+  repeated FeedItem items = 1;
+}
