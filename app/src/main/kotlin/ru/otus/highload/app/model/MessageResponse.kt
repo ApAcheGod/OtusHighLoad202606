@@ -3,7 +3,6 @@ package ru.otus.highload.app.model
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.util.UUID
 
-
 data class MessageResponse(
     val id: UUID,
     @JsonProperty("from")

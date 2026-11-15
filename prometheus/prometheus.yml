@@ -13,6 +13,42 @@ scrape_configs:
         type: A
         port: 8082
 
+  - job_name: 'chat-service'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['chat-service:8083']
+
+  - job_name: 'auth-service'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['auth-service:8084']
+
+  - job_name: 'user-service'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['user-service:8085']
+
+  - job_name: 'post-service'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['post-service:8086']
+
+  - job_name: 'friend-service'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['friend-service:8087']
+
+  - job_name: 'feed-service'
+    scrape_interval: 5s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['feed-service:8089']
+
   - job_name: 'postgres-exporter'
     scrape_interval: 5s
     static_configs:

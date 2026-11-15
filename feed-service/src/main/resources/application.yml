@@ -1,0 +1,47 @@
+server:
+  port: 8089
+
+spring:
+  application:
+    name: feed-service
+  grpc:
+    server:
+      port: 9095
+    client:
+      channel:
+        post-service:
+          target: localhost:9093
+        friend-service:
+          target: localhost:9094
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 2s
+
+app:
+  kafka:
+    bootstrap-servers: ${APP_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    send-timeout-ms: 10000
+  feed:
+    max-size: 1000
+    ttl-hours: 24
+
+logging:
+  structured:
+    format:
+      console: logstash
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/traces

@@ -25,6 +25,20 @@ class RedisSessionStore(
     override fun resolveUserId(token: UUID): UUID? =
         redis.opsForValue().get(key(token))?.let(UUID::fromString)
 
+    override fun delete(token: UUID) {
+        redis.execute(object : SessionCallback<Unit?> {
+            @Suppress("UNCHECKED_CAST")
+            override fun <K : Any, V : Any> execute(operations: RedisOperations<K, V>): Unit? {
+                val stringOps = operations as RedisOperations<String, String>
+                stringOps.multi()
+                stringOps.delete(key(token))
+                stringOps.opsForSet().remove(SESSIONS_KEY, token.toString())
+                stringOps.exec()
+                return null
+            }
+        })
+    }
+
     override fun count(): Long = redis.opsForSet().size(SESSIONS_KEY) ?: 0L
 
     private fun key(token: UUID) = "session:$token"

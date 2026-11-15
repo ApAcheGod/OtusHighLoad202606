@@ -749,3 +749,94 @@ JMeter 5.6.3: 100 потоков, ramp 10 с, 60 с замер, 50 пар диа
 | citus-worker-1 | ~82% / 483 MiB | — |
 | tarantool | — | ~41% / 88 MiB |
 | redis | ~4% / 6.3 MiB | ~9% / 6.4 MiB |
+
+# ДЗ-8. Разделение монолита на сервисы
+
+Цель: вынести бизнес-домены монолита в отдельные сервисы. Внешний REST-контракт
+монолита не менялся — клиенты старых версий приложения ничего не замечают,
+новые клиенты могут ходить напрямую по gRPC-контрактам сервисов.
+
+## Итоговая архитектура
+
+| Сервис | HTTP | gRPC | Домен | Хранилище |
+|---|---|---|---|---|
+| `app` (монолит-фасад) | 8080 | — | прокси, аутентификация запросов | Liquibase для общей схемы Citus |
+| `chat-service` | 8083 | — | диалоги | Tarantool (UDF, ДЗ-7) |
+| `auth-service` | 8084 | 9090 | сессии (токены) | Redis |
+| `user-service` | 8085 | 9092 | пользователи: регистрация, профиль, поиск | собственный Postgres `user-db` |
+| `post-service` | 8086 | 9093 | посты | таблица `posts` в общем Citus |
+| `friend-service` | 8087 | 9094 | дружба | таблица `friends` в общем Citus |
+| `feed-service` | 8089 | 9095 | лента: кеш + фан-аут Kafka | dedicated Redis `feed-redis` |
+
+```text
+клиент ── REST (старый контракт) ──> монолит-фасад
+                                        │  ├─ Authenticate ── gRPC ──> auth-service ──> Redis
+                                        │  ├─ REST-прокси ──────────> chat-service ──> Tarantool
+                                        │  └─ gRPC ──┬─ user.v1  ──> user-service ──> user-db
+                                        │            ├─ post.v1  ──> post-service ──> Citus (posts)
+                                        │            ├─ friend.v1 ─> friend-service ─> Citus (friends)
+                                        │            └─ feed.v1   ──> feed-service ──> feed-redis
+                                        │
+Kafka: post-service ──post.events──> feed-service (фан-аут по друзьям)
+       feed-service ──feed.user.events──> кеш лент и feed-ws (WebSocket, без изменений)
+```
+
+## Ключевые решения
+
+1. **Обратная совместимость через фасад.** Все REST-маршруты монолита
+   (`/user/*`, `/login`, `/dialog/*`, `/post/*`, `/friend/*`) сохранены
+   1-в-1, включая коды ошибок и пограничные случаи (удаление
+   несуществующего поста — 200). Монолит превратился в тонкий прокси.
+2. **Database-per-service — где домен независим.** Пользователи ушли в
+   собственный Postgres, сессии — в Redis auth-service (формат токенов не
+   менялся, выданные токены остались валидны), диалоги — в Tarantool, кеш
+   лент — в отдельный инстанс `feed-redis` без volume (восстанавливается
+   промахом кеша). Пароль (BCrypt-хэш) наружу не уходит —
+   `ValidateCredentials` возвращает только факт совпадения.
+3. **`posts` + `friends` оставлены в общем Citus.** Таблицы
+    Сервисы только читают/пишут.
+4. **Kafka-пайплайн ленты переехал целиком в feed-service.** Топики
+   (`post.events`, `feed.user.events`), партиции и формат событий
+   (`PostEvent`/`FeedUserEvent` из `:utils`) неизменны — gateway
+   (`feed-ws`) совместим без правок. post-service публикует событие
+   после коммита транзакции.
+
+## Observability
+
+- **Сквозной X-Request-Id**: HTTP-фильтр кладёт id в MDC, клиентский
+  gRPC-интерсептор (`@GlobalClientInterceptor`) пробрасывает его в метадату
+  вызова, серверный — обратно в MDC. По одному id логи всех семи сервисов
+  склеиваются в Loki.
+- **Трассировка**: Micrometer Tracing + OpenTelemetry стартерами, без
+  кастомного кода; спаны по OTLP в Tempo. Трейс не разрывается ни на одной
+  границе (HTTP → gRPC-интерсепторы). Пример: `PUT /friend/set` — один
+  трейс из пяти сервисов (friend → user → post → feed + Redis-спаны);
+  `GET /post/feed` — монолит → feed-service (Redis) → post-service.
+- **Метрики**: `/actuator/prometheus` каждого сервиса, jobs в Prometheus.
+
+## Запуск и проверка
+
+```bash
+docker compose up --build -d
+
+# регистрация и логин (API прежний)
+TOKEN=$(curl -s -X POST localhost:8080/login -H 'Content-Type: application/json' \
+  -d '{"id":"<user-uuid>","password":"..."}' | jq -r .token)
+
+# посты / друзья / лента (post/friend/feed-service за кадром)
+curl -X POST localhost:8080/post/create -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"text":"hello"}'
+curl "localhost:8080/post/feed?offset=0&limit=10" -H "Authorization: Bearer $TOKEN"
+curl -X PUT localhost:8080/friend/set/<friend-uuid> -H "Authorization: Bearer $TOKEN"
+# коды ошибок старого контракта: чужой пост -> 400, несуществующий -> 404
+
+# диалоги: старый клиент — через монолит, новый — напрямую
+curl -X POST localhost:8080/dialog/<peer-uuid>/send -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"text":"hi"}'
+curl -X POST localhost:8083/api/v1/dialogs/<peer-uuid>/send -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"text":"hi"}'
+
+# трейс: Grafana -> Explore -> Tempo, сервис otus-highload;
+# трейс GET /post/feed виден через feed-service (Redis-спаны) в post-service,
+# трейс PUT /friend/set — пять сервисов в одном трейсе.
+```

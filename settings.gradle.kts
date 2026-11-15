@@ -20,7 +20,14 @@ plugins {
 // If there are changes in only one of the projects, Gradle will rebuild only the one that has changed.
 // Learn more about structuring projects with Gradle - https://docs.gradle.org/8.7/userguide/multi_project_builds.html
 include(":app")
+include(":chat-service")
 include(":gateway")
 include(":utils")
+include(":grpc-api")
+include(":auth-service")
+include(":user-service")
+include(":post-service")
+include(":friend-service")
+include(":feed-service")
 
 rootProject.name = "OtusHighLoad202606"

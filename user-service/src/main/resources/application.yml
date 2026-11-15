@@ -1,0 +1,44 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: user-service
+  grpc:
+    server:
+      port: 9092
+  liquibase:
+    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/users}
+    user: ${APP_DATASOURCE_USERNAME:otus}
+    password: ${APP_DATASOURCE_PASSWORD:otus_pass}
+    change-log: classpath:/db/changelog/db.changelog-master.xml
+  datasource:
+    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/users}
+    username: ${APP_DATASOURCE_USERNAME:otus}
+    password: ${APP_DATASOURCE_PASSWORD:otus_pass}
+    hikari:
+      maximum-pool-size: 25
+      connection-timeout: 5000
+
+app:
+  search:
+    limit: 50
+
+logging:
+  structured:
+    format:
+      console: logstash
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/traces

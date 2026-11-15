@@ -1,0 +1,157 @@
+openapi: 3.0.3
+info:
+  title: Chat Service API — диалоги (ДЗ-8)
+  version: 1.0.0
+  description: |
+    Протокол взаимодействия с выделенным сервисом диалогов.
+
+    Монолит (`otus-highload`) обращается к этому API по внутренней сети и
+    одновременно проксирует его старым клиентам через прежние маршруты
+    `POST /dialog/{userId}/send` и `GET /dialog/{userId}/list`
+    (обратная совместимость: контракт старого API не изменился).
+
+    Аутентификация — Bearer-токен (UUID сессии) из общего Redis:
+    монолит создаёт сессию при `POST /login`, chat-service валидирует токен сам.
+
+    Сквозное логирование: заголовок `X-Request-Id` принимается от клиента
+    или генерируется сервисом, возвращается в ответе и пробрасывается
+    во все downstream-вызовы.
+servers:
+  - url: http://localhost:8083
+    description: chat-service (новый API)
+tags:
+  - name: dialogs
+    description: Личные сообщения между пользователями
+paths:
+  /api/v1/dialogs/{userId}/send:
+    post:
+      tags: [dialogs]
+      summary: Отправить сообщение пользователю
+      description: |
+        Отправляет сообщение от текущего пользователя (по токену) пользователю
+        `userId`. Идемпотентно по `client_message_id`: повторная отправка с тем
+        же `client_message_id` возвращает id уже сохранённого сообщения.
+      operationId: sendMessage
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+          description: Сквозной идентификатор запроса (генерируется, если не передан)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  maxLength: 4096
+                  example: Привет, как дела?
+                client_message_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Идемпотентный ключ на стороне клиента
+      responses:
+        '200':
+          description: id созданного (или уже существующего) сообщения
+          headers:
+            X-Request-Id:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { type: string, format: uuid }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/dialogs/{userId}/list:
+    get:
+      tags: [dialogs]
+      summary: Список сообщений диалога с пользователем
+      description: |
+        Возвращает сообщения диалога между текущим пользователем и `userId`
+        в хронологическом порядке.
+      operationId: listMessages
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Сообщения диалога
+          headers:
+            X-Request-Id:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Message' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  schemas:
+    Message:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        from: { type: string, format: uuid }
+        to: { type: string, format: uuid }
+        text: { type: string }
+        created_at: { type: string, format: date-time, example: '2026-11-04T12:00:00Z' }
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+        code: { type: integer }
+        timestamp: { type: string, format: date-time }
+  responses:
+    BadRequest:
+      description: Невалидные параметры (пустой/слишком длинный текст, самому себе и т.п.)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Отсутствует или просрочен Bearer-токен
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Хранилище (Tarantool) или Redis недоступны
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: UUID
+security:
+  - bearerAuth: []
