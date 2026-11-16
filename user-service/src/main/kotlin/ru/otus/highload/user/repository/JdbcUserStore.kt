@@ -1,5 +1,6 @@
 package ru.otus.highload.user.repository
 
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
@@ -12,7 +13,8 @@ import java.util.UUID
 
 @Repository
 class JdbcUserStore(
-    private val jdbc: NamedParameterJdbcTemplate,
+    @Qualifier("writeJdbcTemplate") private val writeJdbc: NamedParameterJdbcTemplate,
+    @Qualifier("readOnlyJdbcTemplate") private val readOnlyJdbc: NamedParameterJdbcTemplate,
 ) : UserStore {
 
     private val rowMapper = RowMapper<User> { rs: ResultSet, _: Int ->
@@ -44,7 +46,7 @@ class JdbcUserStore(
             .addValue("biography", user.biography)
             .addValue("city", user.city)
             .addValue("passwordHash", user.passwordHash)
-        jdbc.update(sql, params)
+        writeJdbc.update(sql, params)
     }
 
     override fun findById(id: UUID): User? {
@@ -52,7 +54,15 @@ class JdbcUserStore(
             SELECT id, first_name, second_name, birthdate, gender, interests, biography, city, password_hash
             FROM users WHERE id = :id
         """.trimIndent()
-        return jdbc.query(sql, MapSqlParameterSource("id", id), rowMapper).firstOrNull()
+        return readOnlyJdbc.query(sql, MapSqlParameterSource("id", id), rowMapper).firstOrNull()
+    }
+
+    override fun findByIdForCredentials(id: UUID): User? {
+        val sql = """
+            SELECT id, first_name, second_name, birthdate, gender, interests, biography, city, password_hash
+            FROM users WHERE id = :id
+        """.trimIndent()
+        return writeJdbc.query(sql, MapSqlParameterSource("id", id), rowMapper).firstOrNull()
     }
 
     override fun search(firstName: String, secondName: String, limit: Int): List<User> {
@@ -66,11 +76,11 @@ class JdbcUserStore(
             .addValue("firstName", "${firstName.toCapitalizedPrefix()}%")
             .addValue("secondName", "${secondName.toCapitalizedPrefix()}%")
             .addValue("limit", limit)
-        return jdbc.query(sql, params, rowMapper)
+        return readOnlyJdbc.query(sql, params, rowMapper)
     }
 
     override fun count(): Long =
-        jdbc.queryForObject("SELECT COUNT(*) FROM users", emptyMap<String, Any>(), Long::class.java) ?: 0L
+        readOnlyJdbc.queryForObject("SELECT COUNT(*) FROM users", emptyMap<String, Any>(), Long::class.java) ?: 0L
 
     private fun String.toCapitalizedPrefix(): String =
         lowercase().replaceFirstChar { it.uppercaseChar() }

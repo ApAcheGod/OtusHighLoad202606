@@ -1,6 +1,9 @@
 x-citus-node: &citus-node
-  image: citusdata/citus:14.2.0-pg16
-  platform: linux/amd64
+  image: otus-citus-arm64:14.2.0-pg16
+  build:
+    context: .
+    dockerfile: postgres/Dockerfile.citus-arm64
+  platform: linux/arm64
   environment: &citus-env
     POSTGRES_DB: otus_highload
     POSTGRES_USER: otus
@@ -14,6 +17,7 @@ x-citus-node: &citus-node
       exec docker-entrypoint.sh postgres \
         -c shared_preload_libraries=citus,pg_stat_statements \
         -c wal_level=logical \
+        -c max_connections=300 \
         -c max_replication_slots=16 \
         -c max_wal_senders=16 \
         -c pg_stat_statements.max=10000 \
@@ -29,6 +33,20 @@ x-citus-node: &citus-node
 services:
   citus-coordinator:
     <<: *citus-node
+    command:
+      - |
+        set -e
+        install -m 600 -o postgres -g postgres /opt/citus-auth/pgpass /var/lib/postgresql/.pgpass
+        exec docker-entrypoint.sh postgres \
+          -c shared_preload_libraries=citus,pg_stat_statements \
+          -c wal_level=logical \
+          -c max_connections=300 \
+          -c max_replication_slots=16 \
+          -c max_wal_senders=16 \
+          -c pg_stat_statements.max=10000 \
+          -c pg_stat_statements.track=all \
+          -c track_io_timing=on \
+          -c citus.max_shared_pool_size=32
     ports:
       - "5432:5432"
     volumes:
@@ -36,6 +54,10 @@ services:
       - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
       - citus_coordinator_data:/var/lib/postgresql/data
 
+    deploy:
+      resources:
+        limits:
+          memory: 1200m
   citus-worker-1:
     <<: *citus-node
     ports:
@@ -46,6 +68,10 @@ services:
       - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
       - citus_worker1_data:/var/lib/postgresql/data
 
+    deploy:
+      resources:
+        limits:
+          memory: 768m
   citus-worker-2:
     <<: *citus-node
     ports:
@@ -56,6 +82,10 @@ services:
       - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
       - citus_worker2_data:/var/lib/postgresql/data
 
+    deploy:
+      resources:
+        limits:
+          memory: 768m
   citus-worker-3:
     <<: *citus-node
     ports:
@@ -66,6 +96,10 @@ services:
       - ./postgres/.pgpass:/opt/citus-auth/pgpass:ro
       - citus_worker3_data:/var/lib/postgresql/data
 
+    deploy:
+      resources:
+        limits:
+          memory: 768m
   citus-worker-4:
     <<: *citus-node
     profiles: ["extra"]
@@ -78,8 +112,11 @@ services:
       - citus_worker4_data:/var/lib/postgresql/data
 
   citus-init:
-    image: citusdata/citus:14.2.0-pg16
-    platform: linux/amd64
+    image: otus-citus-arm64:14.2.0-pg16
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile.citus-arm64
+    platform: linux/arm64
     depends_on:
       citus-coordinator:
         condition: service_healthy
@@ -183,8 +220,9 @@ services:
         condition: service_healthy
 
   kafka:
-    image: apache/kafka:4.0.0
+    image: apache/kafka:4.4.0
     environment:
+      KAFKA_HEAP_OPTS: -Xmx512M -Xms512M
       KAFKA_CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -201,16 +239,24 @@ services:
       KAFKA_LOG_DIRS: /var/lib/kafka/data
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
-      interval: 5s
+      interval: 30s
       timeout: 10s
       retries: 20
       start_period: 30s
 
+    deploy:
+      resources:
+        limits:
+          memory: 768m
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
     ports:
       - "8080:8080"
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       APP_DATASOURCE_USERNAME: otus
       APP_DATASOURCE_PASSWORD: otus_pass
@@ -223,6 +269,9 @@ services:
       SPRING_GRPC_CLIENT_CHANNEL_POST_SERVICE_TARGET: post-service:9093
       SPRING_GRPC_CLIENT_CHANNEL_FRIEND_SERVICE_TARGET: friend-service:9094
       SPRING_GRPC_CLIENT_CHANNEL_FEED_SERVICE_TARGET: feed-service:9095
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "0.01"
+      MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED: "false"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
@@ -230,6 +279,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       citus-init:
         condition: service_completed_successfully
@@ -238,29 +288,37 @@ services:
       redis:
         condition: service_healthy
       chat-service:
-        condition: service_healthy
+        condition: service_started
       auth-service:
-        condition: service_healthy
+        condition: service_started
       user-service:
-        condition: service_healthy
+        condition: service_started
       post-service:
-        condition: service_healthy
+        condition: service_started
       friend-service:
-        condition: service_healthy
+        condition: service_started
       feed-service:
-        condition: service_healthy
+        condition: service_started
 
+    deploy:
+      resources:
+        limits:
+          memory: 1152m
   chat-service:
     build:
       context: .
-      dockerfile: chat-service/Dockerfile
+      dockerfile: Dockerfile
+      target: chat-service
     ports:
       - "8083:8083"
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       APP_TARANTOOL_HOST: tarantool
       APP_TARANTOOL_USERNAME: app
       APP_TARANTOOL_PASSWORD: app_pass
       SPRING_GRPC_CLIENT_CHANNEL_DEFAULT_TARGET: auth-service:9090
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED: "false"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083' || exit 1"]
@@ -268,22 +326,31 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       tarantool:
         condition: service_healthy
       auth-service:
-        condition: service_healthy
+        condition: service_started
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   auth-service:
     build:
       context: .
-      dockerfile: auth-service/Dockerfile
+      dockerfile: Dockerfile
+      target: auth-service
     ports:
       - "8084:8084"
       - "9091:9090"
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "0.01"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9090' || exit 1"]
@@ -291,18 +358,41 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       redis:
         condition: service_healthy
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   user-db:
     image: postgres:16
+    entrypoint: ["/bin/bash", "/replication/user-db-primary.sh"]
     environment:
       POSTGRES_USER: otus
       POSTGRES_PASSWORD: otus_pass
       POSTGRES_DB: users
     volumes:
+      - ./postgres/user-db-init.sql:/docker-entrypoint-initdb.d/user-db-init.sql:ro
+      - ./postgres/zz-replication-hba.sh:/docker-entrypoint-initdb.d/zz-replication-hba.sh:ro
+      - ./postgres/user-db-primary.sh:/replication/user-db-primary.sh:ro
       - user_db_data:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "wal_keep_size=1024"
+      - "-c"
+      - "max_connections=300"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U otus -d users"]
       interval: 5s
@@ -310,21 +400,25 @@ services:
       retries: 12
       start_period: 20s
 
-  user-service:
-    build:
-      context: .
-      dockerfile: user-service/Dockerfile
-    ports:
-      - "8085:8085"
-      - "9092:9092"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+  user-db-slave-1:
+    image: postgres:16
+    entrypoint: ["/bin/bash", "/replication/standby-init.sh"]
+    command: ["postgres", "-c", "max_connections=300"]
     environment:
-      APP_DATASOURCE_URL: jdbc:postgresql://user-db:5432/users
-      APP_DATASOURCE_USERNAME: otus
-      APP_DATASOURCE_PASSWORD: otus_pass
-      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      PRIMARY_HOST: user-db
+      REPLICA_USER: replica
+      REPLICA_PASSWORD: replica_pass
+      APPLICATION_NAME: user_db_slave_1
+    volumes:
+      - ./postgres/standby-init.sh:/replication/standby-init.sh:ro
+      - user_db_slave1_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9092' || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U otus -d users"]
+      interval: 5s
       timeout: 5s
       retries: 12
       start_period: 60s
@@ -332,18 +426,86 @@ services:
       user-db:
         condition: service_healthy
 
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+  user-db-slave-2:
+    image: postgres:16
+    entrypoint: ["/bin/bash", "/replication/standby-init.sh"]
+    command: ["postgres", "-c", "max_connections=300"]
+    environment:
+      PRIMARY_HOST: user-db
+      REPLICA_USER: replica
+      REPLICA_PASSWORD: replica_pass
+      APPLICATION_NAME: user_db_slave_2
+    volumes:
+      - ./postgres/standby-init.sh:/replication/standby-init.sh:ro
+      - user_db_slave2_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus -d users"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      user-db:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: user-service
+    ports:
+      - "8085:8085"
+      - "9092:9092"
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
+      APP_DATASOURCE_URL: jdbc:postgresql://user-db:5432/users
+      APP_DATASOURCE_SLAVE_URL: jdbc:postgresql://user-db-slave-1:5432/users
+      APP_DATASOURCE_USERNAME: otus
+      APP_DATASOURCE_PASSWORD: otus_pass
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "0.01"
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9092' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+      start_interval: 1s
+    depends_on:
+      user-db:
+        condition: service_healthy
+      user-db-slave-1:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          memory: 768m
   post-service:
     build:
       context: .
-      dockerfile: post-service/Dockerfile
+      dockerfile: Dockerfile
+      target: post-service
     ports:
       - "8086:8086"
       - "9093:9093"
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       APP_DATASOURCE_USERNAME: otus
       APP_DATASOURCE_PASSWORD: otus_pass
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "8"
       APP_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9093' || exit 1"]
@@ -351,24 +513,33 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       citus-init:
         condition: service_completed_successfully
       kafka:
         condition: service_healthy
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   friend-service:
     build:
       context: .
-      dockerfile: friend-service/Dockerfile
+      dockerfile: Dockerfile
+      target: friend-service
     ports:
       - "8087:8087"
       - "9094:9094"
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       APP_DATASOURCE_URL: jdbc:postgresql://citus-coordinator:5432/otus_highload
       APP_DATASOURCE_USERNAME: otus
       APP_DATASOURCE_PASSWORD: otus_pass
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "8"
       SPRING_GRPC_CLIENT_CHANNEL_USER_SERVICE_TARGET: user-service:9092
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9094' || exit 1"]
@@ -376,25 +547,33 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       citus-init:
         condition: service_completed_successfully
       user-service:
-        condition: service_healthy
+        condition: service_started
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   feed-service:
     build:
       context: .
-      dockerfile: feed-service/Dockerfile
+      dockerfile: Dockerfile
+      target: feed-service
     ports:
       - "8089:8089"
       - "9095:9095"
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       SPRING_DATA_REDIS_HOST: feed-redis
       SPRING_DATA_REDIS_PORT: "6379"
       APP_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_GRPC_CLIENT_CHANNEL_POST_SERVICE_TARGET: post-service:9093
       SPRING_GRPC_CLIENT_CHANNEL_FRIEND_SERVICE_TARGET: friend-service:9094
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9095' || exit 1"]
@@ -402,16 +581,21 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       kafka:
         condition: service_healthy
       feed-redis:
         condition: service_healthy
       post-service:
-        condition: service_healthy
+        condition: service_started
       friend-service:
-        condition: service_healthy
+        condition: service_started
 
+    deploy:
+      resources:
+        limits:
+          memory: 640m
   feed-redis:
     image: redis:8.8.4-alpine
     healthcheck:
@@ -420,11 +604,17 @@ services:
       timeout: 3s
       retries: 20
 
+    deploy:
+      resources:
+        limits:
+          memory: 128m
   feed-ws:
     build:
       context: .
-      dockerfile: gateway/Dockerfile
+      dockerfile: Dockerfile
+      target: gateway
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
@@ -436,6 +626,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+      start_interval: 1s
     depends_on:
       citus-init:
         condition: service_completed_successfully
@@ -444,6 +635,10 @@ services:
       redis:
         condition: service_healthy
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   redis:
     image: redis:8.8.4-alpine
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
@@ -457,9 +652,15 @@ services:
       timeout: 3s
       retries: 20
 
+    deploy:
+      resources:
+        limits:
+          memory: 128m
   tarantool:
     image: tarantool/tarantool:3
     command: ["tarantool", "/opt/tarantool/init.lua"]
+    environment:
+      TT_MEMTX_MEMORY: "2147483648"
     ports:
       - "3301:3301"
     volumes:
@@ -472,6 +673,10 @@ services:
       retries: 20
       start_period: 10s
 
+    deploy:
+      resources:
+        limits:
+          memory: 2560m
   node-exporter:
     image: prom/node-exporter:latest
     ports:
@@ -500,6 +705,10 @@ services:
       - --docker_only=true
       - --housekeeping_interval=10s
 
+    deploy:
+      resources:
+        limits:
+          memory: 256m
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -507,6 +716,10 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
 
+    deploy:
+      resources:
+        limits:
+          memory: 448m
   grafana:
     image: grafana/grafana:latest
     ports:
@@ -521,6 +734,10 @@ services:
     depends_on:
       - loki
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   loki:
     image: grafana/loki:latest
     ports:
@@ -530,6 +747,10 @@ services:
       - loki-data:/loki
     command: -config.file=/etc/loki/loki-config.yml
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
   tempo:
     image: grafana/tempo:latest
     ports:
@@ -540,6 +761,10 @@ services:
       - tempo_data:/var/tempo
     command: -config.file=/etc/tempo/tempo.yaml
 
+    deploy:
+      resources:
+        limits:
+          memory: 768m
   promtail:
     image: grafana/promtail:latest
     volumes:
@@ -558,5 +783,7 @@ volumes:
   redis_data:
   tarantool_data:
   user_db_data:
+  user_db_slave1_data:
+  user_db_slave2_data:
   loki-data:
   tempo_data:

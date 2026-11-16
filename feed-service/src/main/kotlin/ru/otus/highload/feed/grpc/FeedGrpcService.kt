@@ -37,11 +37,12 @@ class FeedGrpcService(
         }
         val userId = uuid("user_id", request.userId)
 
-        if (feedCacheService.getFeedPostIds(userId, 0, 1) == null) {
+        var postIds = feedCacheService.getFeedPostIds(userId, offset, limit)
+        if (postIds == null) {
             warmFromDatabase(userId)
+            postIds = feedCacheService.getFeedPostIds(userId, offset, limit)
         }
 
-        val postIds = feedCacheService.getFeedPostIds(userId, offset, limit)
         if (postIds.isNullOrEmpty()) {
             respond(responseObserver, GetFeedResponse.getDefaultInstance())
             return

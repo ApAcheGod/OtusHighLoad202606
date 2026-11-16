@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="010_posts_author_feed_order_index" author="n.alpatov">
+        <comment>Посты автора в порядке ленты без дополнительной сортировки</comment>
+        <createIndex indexName="idx_posts_user_created_id" tableName="posts">
+            <column name="user_id"/>
+            <column name="created_at" descending="true"/>
+            <column name="id" descending="true"/>
+        </createIndex>
+        <dropIndex indexName="idx_posts_user_created" tableName="posts"/>
+        <rollback>
+            <createIndex indexName="idx_posts_user_created" tableName="posts">
+                <column name="user_id"/>
+                <column name="created_at"/>
+            </createIndex>
+            <dropIndex indexName="idx_posts_user_created_id" tableName="posts"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

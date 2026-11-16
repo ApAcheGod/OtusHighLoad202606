@@ -12,17 +12,21 @@ spring:
     user: ${APP_DATASOURCE_USERNAME:otus}
     password: ${APP_DATASOURCE_PASSWORD:otus_pass}
     change-log: classpath:/db/changelog/db.changelog-master.xml
-  datasource:
-    url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/users}
-    username: ${APP_DATASOURCE_USERNAME:otus}
-    password: ${APP_DATASOURCE_PASSWORD:otus_pass}
-    hikari:
-      maximum-pool-size: 25
-      connection-timeout: 5000
 
 app:
   search:
     limit: 50
+  datasource:
+    master:
+      url: ${APP_DATASOURCE_URL:jdbc:postgresql://localhost:5432/users}
+      username: ${APP_DATASOURCE_USERNAME:otus}
+      password: ${APP_DATASOURCE_PASSWORD:otus_pass}
+    slave:
+      url: ${APP_DATASOURCE_SLAVE_URL:jdbc:postgresql://localhost:5432/users}
+      username: ${APP_DATASOURCE_SLAVE_USERNAME:otus}
+      password: ${APP_DATASOURCE_SLAVE_PASSWORD:otus_pass}
+    pool-size: ${APP_DATASOURCE_POOL_SIZE:60}
+    connection-timeout: 5000
 
 logging:
   structured:
@@ -34,6 +38,9 @@ management:
     web:
       exposure:
         include: health, prometheus
+  metrics:
+    observations:
+      ignored-meters: [LONG_TASK_TIMER]
   tracing:
     sampling:
       probability: 1.0

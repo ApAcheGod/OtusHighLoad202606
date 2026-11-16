@@ -18,6 +18,8 @@ app:
     password: app_pass
 
 logging:
+  level:
+    ru.otus.highload.chat.controller.DialogController: WARN
   structured:
     format:
       console: logstash
@@ -28,6 +30,8 @@ management:
       exposure:
         include: health, prometheus
   metrics:
+    observations:
+      ignored-meters: [LONG_TASK_TIMER]
     distribution:
       percentiles-histogram:
         http.server.requests: true

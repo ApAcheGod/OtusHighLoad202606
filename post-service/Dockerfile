@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM gradle:jdk25 AS build
 WORKDIR /app
 
@@ -15,16 +17,16 @@ COPY feed-service/build.gradle.kts feed-service/build.gradle.kts
 COPY grpc-api/build.gradle.kts grpc-api/build.gradle.kts
 COPY utils/build.gradle.kts utils/build.gradle.kts
 COPY gateway/build.gradle.kts gateway/build.gradle.kts
-RUN gradle --no-daemon :post-service:dependencies
 
 COPY grpc-api/src grpc-api/src
 COPY utils/src utils/src
 COPY post-service/src post-service/src
-RUN gradle :post-service:bootJar --no-daemon
+RUN --mount=type=cache,id=otus-gradle,target=/home/gradle/.gradle,sharing=locked \
+    gradle --no-daemon :post-service:bootJar
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /app/post-service/build/libs/post-service.jar post-service.jar
 EXPOSE 8086
 EXPOSE 9093
-CMD ["java", "-XX:MaxRAMPercentage=60", "-jar", "post-service.jar"]
+CMD ["java", "-jar", "post-service.jar"]

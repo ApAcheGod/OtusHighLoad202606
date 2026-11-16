@@ -13,5 +13,6 @@
     <include file="changesets/007_seed_posts_and_friends.xml" relativeToChangelogFile="true"/>
     <include file="changesets/008_citus_distribute_core.xml" relativeToChangelogFile="true"/>
     <include file="changesets/009_create_dialog_messages.xml" relativeToChangelogFile="true"/>
+    <include file="changesets/010_posts_author_feed_order_index.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

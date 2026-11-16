@@ -71,7 +71,7 @@ class UserGrpcService(
         request: ValidateCredentialsRequest,
         responseObserver: StreamObserver<ValidateCredentialsResponse>,
     ) {
-        val user = userStore.findById(UUID.fromString(request.id))
+        val user = userStore.findByIdForCredentials(UUID.fromString(request.id))
         val valid = user != null && passwordEncoder.matches(request.password, user.passwordHash)
         respond(responseObserver, ValidateCredentialsResponse.newBuilder().setValid(valid).build())
     }

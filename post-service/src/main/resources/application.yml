@@ -30,6 +30,9 @@ management:
     web:
       exposure:
         include: health, prometheus
+  metrics:
+    observations:
+      ignored-meters: [LONG_TASK_TIMER]
   tracing:
     sampling:
       probability: 1.0

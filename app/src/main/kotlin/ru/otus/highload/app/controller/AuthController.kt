@@ -27,12 +27,11 @@ class AuthController(
 
     @PostMapping("/login")
     fun login(@RequestBody request: LoginRequest): ResponseEntity<Map<String, String>> {
-        if (userService.getById(request.id) == null) {
-            loginFailureCounter.increment()
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
-        }
         if (!userService.validatePassword(request.id, request.password)) {
             loginFailureCounter.increment()
+            if (userService.getById(request.id) == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+            }
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
         }
         val token = tokenService.createToken(request.id)

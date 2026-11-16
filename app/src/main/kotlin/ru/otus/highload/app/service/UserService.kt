@@ -24,7 +24,7 @@ class UserService(
     private val registrationsCounter = meterRegistry.counter("app_registrations_total", "description", "Total number of user registrations")
 
     fun register(request: RegisterRequest): UUID {
-        val response = userStub.withDeadlineAfter(RPC_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+        val response = userStub.withDeadlineAfter(REGISTER_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
             .register(
                 GrpcRegisterRequest.newBuilder()
                     .setFirstName(request.firstName)
@@ -92,6 +92,7 @@ class UserService(
 
     companion object {
         private val RPC_TIMEOUT = Duration.ofMillis(500)
+        private val REGISTER_TIMEOUT = Duration.ofSeconds(2)
         private val VALIDATE_TIMEOUT = Duration.ofSeconds(2)
     }
 }

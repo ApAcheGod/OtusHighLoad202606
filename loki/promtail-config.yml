@@ -29,5 +29,7 @@ scrape_configs:
             level:
             logger_name:
       - labels:
-          traceId:
           level:
+      - structured_metadata:
+          traceId:
+          spanId:

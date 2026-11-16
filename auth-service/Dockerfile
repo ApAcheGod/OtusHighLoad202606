@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM gradle:jdk25 AS build
 WORKDIR /app
 
@@ -15,16 +17,16 @@ COPY feed-service/build.gradle.kts feed-service/build.gradle.kts
 COPY grpc-api/build.gradle.kts grpc-api/build.gradle.kts
 COPY utils/build.gradle.kts utils/build.gradle.kts
 COPY gateway/build.gradle.kts gateway/build.gradle.kts
-RUN gradle --no-daemon :auth-service:dependencies :utils:dependencies
 
 COPY utils/src utils/src
 COPY grpc-api/src grpc-api/src
 COPY auth-service/src auth-service/src
-RUN gradle :auth-service:bootJar --no-daemon
+RUN --mount=type=cache,id=otus-gradle,target=/home/gradle/.gradle,sharing=locked \
+    gradle --no-daemon :auth-service:bootJar
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /app/auth-service/build/libs/auth-service.jar auth-service.jar
 EXPOSE 8084
 EXPOSE 9090
-CMD ["java", "-XX:MaxRAMPercentage=60", "-jar", "auth-service.jar"]
+CMD ["java", "-jar", "auth-service.jar"]

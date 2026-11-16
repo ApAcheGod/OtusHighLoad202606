@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM gradle:jdk25 AS build
 WORKDIR /app
 
@@ -15,16 +17,16 @@ COPY feed-service/build.gradle.kts feed-service/build.gradle.kts
 COPY grpc-api/build.gradle.kts grpc-api/build.gradle.kts
 COPY utils/build.gradle.kts utils/build.gradle.kts
 COPY gateway/build.gradle.kts gateway/build.gradle.kts
-RUN gradle --no-daemon :friend-service:dependencies
 
 COPY grpc-api/src grpc-api/src
 COPY utils/src utils/src
 COPY friend-service/src friend-service/src
-RUN gradle :friend-service:bootJar --no-daemon
+RUN --mount=type=cache,id=otus-gradle,target=/home/gradle/.gradle,sharing=locked \
+    gradle --no-daemon :friend-service:bootJar
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /app/friend-service/build/libs/friend-service.jar friend-service.jar
 EXPOSE 8087
 EXPOSE 9094
-CMD ["java", "-XX:MaxRAMPercentage=60", "-jar", "friend-service.jar"]
+CMD ["java", "-jar", "friend-service.jar"]

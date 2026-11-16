@@ -8,6 +8,9 @@ spring:
     client:
       connect-timeout: 2s
       read-timeout: 10s
+    clients:
+      imperative:
+        factory: HTTP_COMPONENTS
   grpc:
     client:
       channel:
@@ -42,6 +45,8 @@ app:
     connection-timeout: 5000
 
 logging:
+  level:
+    ru.otus.highload.app.service.ChatServiceClient: WARN
   structured:
     format:
       console: logstash
@@ -52,6 +57,8 @@ management:
       exposure:
         include: health, prometheus
   metrics:
+    observations:
+      ignored-meters: [LONG_TASK_TIMER]
     distribution:
       percentiles-histogram:
         http.server.requests: true

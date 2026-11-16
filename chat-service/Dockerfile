@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM gradle:jdk25 AS build
 WORKDIR /app
 
@@ -15,15 +17,15 @@ COPY feed-service/build.gradle.kts feed-service/build.gradle.kts
 COPY grpc-api/build.gradle.kts grpc-api/build.gradle.kts
 COPY utils/build.gradle.kts utils/build.gradle.kts
 COPY gateway/build.gradle.kts gateway/build.gradle.kts
-RUN gradle --no-daemon :chat-service:dependencies :utils:dependencies
 
 COPY utils/src utils/src
 COPY grpc-api/src grpc-api/src
 COPY chat-service/src chat-service/src
-RUN gradle :chat-service:bootJar --no-daemon
+RUN --mount=type=cache,id=otus-gradle,target=/home/gradle/.gradle,sharing=locked \
+    gradle --no-daemon :chat-service:bootJar
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /app/chat-service/build/libs/chat-service.jar chat-service.jar
 EXPOSE 8083
-CMD ["java", "-XX:MaxRAMPercentage=60", "-jar", "chat-service.jar"]
+CMD ["java", "-jar", "chat-service.jar"]

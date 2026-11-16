@@ -60,12 +60,16 @@ class PostRepository(
     }
 
     @Transactional
-    fun deleteById(id: UUID, userId: UUID): Boolean {
-        val sql = "DELETE FROM posts WHERE user_id = :userId AND id = :id"
+    fun deleteById(id: UUID, userId: UUID): Post? {
+        val sql = """
+            DELETE FROM posts
+            WHERE user_id = :userId AND id = :id
+            RETURNING id, user_id, text, created_at, likes
+        """.trimIndent()
         val params = MapSqlParameterSource()
             .addValue("id", id)
             .addValue("userId", userId)
-        return jdbc.update(sql, params) > 0
+        return jdbc.query(sql, params, PostRowMapper).firstOrNull()
     }
 
     @Transactional(readOnly = true)

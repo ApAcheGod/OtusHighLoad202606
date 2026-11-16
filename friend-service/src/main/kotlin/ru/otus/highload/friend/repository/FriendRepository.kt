@@ -15,15 +15,23 @@ class FriendRepository(
     @Transactional
     fun saveMutual(a: UUID, b: UUID) {
         val (low, high) = ordered(a, b)
-        insert(low, high)
-        insert(high, low)
+        val sql = """
+            INSERT INTO friends (user_id, friend_id)
+            VALUES (:firstUserId, :firstFriendId), (:secondUserId, :secondFriendId)
+            ON CONFLICT (user_id, friend_id) DO NOTHING
+        """.trimIndent()
+        jdbc.update(sql, mutualParams(low, high))
     }
 
     @Transactional
     fun deleteMutual(a: UUID, b: UUID) {
         val (low, high) = ordered(a, b)
-        delete(low, high)
-        delete(high, low)
+        val sql = """
+            DELETE FROM friends
+            WHERE (user_id, friend_id) IN
+                  ((:firstUserId, :firstFriendId), (:secondUserId, :secondFriendId))
+        """.trimIndent()
+        jdbc.update(sql, mutualParams(low, high))
     }
 
     @Transactional(readOnly = true)
@@ -33,27 +41,12 @@ class FriendRepository(
         return jdbc.query(sql, params, FRIEND_ROW_MAPPER)
     }
 
-    private fun insert(userId: UUID, friendId: UUID) {
-        val sql = """
-            INSERT INTO friends (user_id, friend_id)
-            VALUES (:userId, :friendId)
-            ON CONFLICT (user_id, friend_id) DO NOTHING
-        """.trimIndent()
-        jdbc.update(sql, params(userId, friendId))
-    }
-
-    private fun delete(userId: UUID, friendId: UUID) {
-        val sql = """
-            DELETE FROM friends
-            WHERE user_id = :userId AND friend_id = :friendId
-        """.trimIndent()
-        jdbc.update(sql, params(userId, friendId))
-    }
-
-    private fun params(userId: UUID, friendId: UUID): MapSqlParameterSource =
+    private fun mutualParams(low: UUID, high: UUID): MapSqlParameterSource =
         MapSqlParameterSource()
-            .addValue("userId", userId)
-            .addValue("friendId", friendId)
+            .addValue("firstUserId", low)
+            .addValue("firstFriendId", high)
+            .addValue("secondUserId", high)
+            .addValue("secondFriendId", low)
 
     private companion object {
         val FRIEND_ROW_MAPPER = RowMapper<UUID> { rs, _ -> rs.getObject("friend_id") as UUID }

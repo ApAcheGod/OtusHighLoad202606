@@ -4,7 +4,7 @@ local utf8 = require('utf8')
 
 box.cfg {
     listen = 3301,
-    memtx_memory = 512 * 1024 * 1024,
+    memtx_memory = 2 * 1024 * 1024 * 1024,
 }
 
 box.schema.user.create('app', {password = 'app_pass', if_not_exists = true})

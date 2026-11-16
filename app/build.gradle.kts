@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":grpc-api"))
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-restclient")
+    implementation("org.apache.httpcomponents.client5:httpclient5")
     implementation("org.springframework.boot:spring-boot-starter-grpc-client")
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("tools.jackson.module:jackson-module-kotlin")

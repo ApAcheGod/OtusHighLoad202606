@@ -1,0 +1,43 @@
+FROM postgres:16.14-trixie AS citus-build
+
+ARG CITUS_VERSION=14.2.0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        autoconf \
+        bison \
+        build-essential \
+        ca-certificates \
+        curl \
+        flex \
+        libcurl4-openssl-dev \
+        libicu-dev \
+        liblz4-dev \
+        libssl-dev \
+        libzstd-dev \
+        postgresql-server-dev-16=16.14-1.pgdg13+1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL "https://github.com/citusdata/citus/archive/refs/tags/v${CITUS_VERSION}.tar.gz" -o /tmp/citus.tar.gz \
+    && mkdir /tmp/citus \
+    && tar -xzf /tmp/citus.tar.gz --strip-components=1 -C /tmp/citus \
+    && rm /tmp/citus.tar.gz
+
+WORKDIR /tmp/citus
+RUN ./configure --with-security-flags \
+    && make -j"$(nproc)" \
+    && make install-all
+
+FROM postgres:16.14-trixie
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libcurl4 \
+        liblz4-1 \
+        libzstd1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=citus-build /usr/lib/postgresql/16/lib/citus*.so /usr/lib/postgresql/16/lib/
+COPY --from=citus-build /usr/share/postgresql/16/extension/citus* /usr/share/postgresql/16/extension/
+
+RUN echo "shared_preload_libraries='citus'" >> /usr/share/postgresql/postgresql.conf.sample

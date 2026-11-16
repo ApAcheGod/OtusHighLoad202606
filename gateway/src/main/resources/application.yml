@@ -29,6 +29,8 @@ management:
       exposure:
         include: health, prometheus
   metrics:
+    observations:
+      ignored-meters: [LONG_TASK_TIMER]
     distribution:
       percentiles-histogram:
         http.server.requests: true

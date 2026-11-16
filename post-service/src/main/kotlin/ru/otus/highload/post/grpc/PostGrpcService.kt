@@ -100,20 +100,20 @@ class PostGrpcService(
     override fun delete(request: DeleteRequest, responseObserver: StreamObserver<DeleteResponse>) {
         val id = uuid("id", request.id)
         val authorId = uuid("author_id", request.authorId)
-        val post = postRepository.findById(id) ?: throw notFound("post not found: ${request.id}")
-        if (post.userId != authorId) {
-            throw Status.INVALID_ARGUMENT.withDescription("Not post owner").asRuntimeException()
-        }
-        val deleted = postRepository.deleteById(id, authorId)
-        if (deleted) {
-            val score = Instant.parse(post.createdAt).toEpochMilli()
-            afterCommit {
-                postEventProducer.postEvent(
-                    PostEvent(PostEventOperation.DELETED, id.toString(), authorId.toString(), createdAtMs = score)
-                )
+        val post = postRepository.deleteById(id, authorId) ?: run {
+            val existing = postRepository.findById(id) ?: throw notFound("post not found: ${request.id}")
+            if (existing.userId != authorId) {
+                throw Status.INVALID_ARGUMENT.withDescription("Not post owner").asRuntimeException()
             }
+            throw notFound("post not found: ${request.id}")
         }
-        respond(responseObserver, DeleteResponse.newBuilder().setDeleted(deleted).build())
+        val score = Instant.parse(post.createdAt).toEpochMilli()
+        afterCommit {
+            postEventProducer.postEvent(
+                PostEvent(PostEventOperation.DELETED, id.toString(), authorId.toString(), createdAtMs = score)
+            )
+        }
+        respond(responseObserver, DeleteResponse.newBuilder().setDeleted(true).build())
     }
 
     override fun listLatestByAuthor(
