@@ -840,3 +840,98 @@ curl -X POST localhost:8083/api/v1/dialogs/<peer-uuid>/send -H "Authorization: B
 # трейс GET /post/feed виден через feed-service (Redis-спаны) в post-service,
 # трейс PUT /friend/set — пять сервисов в одном трейсе.
 ```
+
+---
+
+# ДЗ-9. Отказоустойчивость приложений
+
+Цель: проверить непрерывность работы системы под нагрузкой при отказе одного
+слейва PostgreSQL и одного инстанса бэкенда.
+
+## Архитектура
+
+```text
+JMeter → app:8080 → user-nginx:9092 → user-service-1 / user-service-2
+                                      │
+                       user-haproxy:5000 → user-db (primary, запись)
+                       user-haproxy:5001 → user-db-slave-1 / user-db-slave-2
+```
+
+Используются один primary и два асинхронных standby PostgreSQL. Слейвы
+создаются через `pg_basebackup` и работают в режиме hot standby. Проверка:
+
+```text
+user_db_slave_1 | streaming | async
+user_db_slave_2 | streaming | async
+pg_is_in_recovery() → t
+```
+
+## HAProxy
+
+Конфигурация `haproxy/haproxy.cfg`:
+
+Порт `5000` направляет запись на primary, `5001` балансирует чтение между
+слейвами; primary используется как резервный узел чтения. Приложение выбирает
+порт по типу транзакции. `pgsql-check` проверяет доступность PostgreSQL:
+после трёх неудачных проверок узел выводится из ротации, после двух успешных —
+возвращается.
+
+## Nginx
+
+Два инстанса `user-service` балансируются конфигурацией
+`nginx/user-service.conf`:
+
+`least_conn` распределяет запросы по числу активных соединений. При ошибке
+или таймауте Nginx повторяет запрос на другом инстансе; после трёх ошибок
+недоступный инстанс временно исключается из балансировки.
+
+## Условия эксперимента
+
+- 60 потоков, ramp-up 3–5 с, длительность 150 с; предварительный прогрев 45 с.
+- На 60-й секунде контейнер аварийно завершается командой
+  `docker kill --signal=KILL <container>` (аналог `kill -9`).
+
+## Отказ слейва PostgreSQL
+
+На 60-й секунде остановлен `user-db-slave-1`. Результат: **104 525 запросов,
+75 ошибок (0,07 %)**, из них 8 — в окне отказа. RPS составил около 690 против
+примерно 700 до отказа; чтение продолжил второй слейв.
+
+Лог HAProxy:
+
+```text
+Server pg_read/pg_slave_1 is DOWN, reason: Layer4 timeout, check duration: 2001ms.
+1 active and 1 backup servers left. 3 sessions active, 0 requeued, 0 remaining in queue.
+```
+
+Состояние бэкендов:
+
+```text
+pg_read/pg_slave_1: DOWN
+pg_read/pg_slave_2: UP — весь read-трафик
+pg_read/pg_primary_backup: UP, total_sessions=0
+```
+
+## Отказ инстанса бэкенда
+
+На 60-й секунде остановлен `user-service-1`. Результат: **259 788 запросов,
+1 035 ошибок (0,40 %)**, RPS оставался в диапазоне 1650–1800. До отказа и
+после восстановления инстанса ошибок не было.
+
+Лог Nginx:
+
+```text
+[error] connect() failed (111: Connection refused) while connecting to upstream,
+request: "POST /user.v1.UserService/Search HTTP/2.0",
+upstream: "grpc://172.25.0.23:9092", host: "user-nginx:9092"
+```
+
+Nginx перенаправил 1 181 запрос на второй инстанс. Ошибки относятся к RPC,
+которые выполнялись на остановленном процессе или были отправлены по уже
+разорванному keepalive-соединению.
+
+## Вывод
+
+Система продолжила обслуживать запросы в обоих экспериментах без ручного
+переключения. После отказа слейва трафик перешёл на второй слейв через HAProxy,
+после отказа бэкенда — на оставшийся инстанс через Nginx.
