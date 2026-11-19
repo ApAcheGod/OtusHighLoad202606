@@ -1,0 +1,37 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: counter-service
+  data:
+    redis:
+      host: ${COUNTER_VALKEY_HOST:localhost}
+      port: ${COUNTER_VALKEY_PORT:6379}
+      timeout: 2s
+
+app:
+  internal-token: ${APP_INTERNAL_TOKEN:local-internal-token}
+  chat-service:
+    url: ${APP_CHAT_SERVICE_URL:http://localhost:8083}
+  counter:
+    restore-lock-ms: 5000
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    send-timeout-ms: ${KAFKA_SEND_TIMEOUT_MS:10000}
+
+management:
+  metrics:
+    observations:
+      ignored-meters: [LONG_TASK_TIMER]
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true

@@ -1,9 +1,11 @@
 package ru.otus.highload.chat.controller
 
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -41,6 +43,12 @@ class DialogController(
         val messages = dialogService.listMessages(userId, offset, limit)
         log.info("dialog list: withUserId={} count={}", userId, messages.size)
         return ResponseEntity.ok(messages.map { it.toResponse() })
+    }
+
+    @PutMapping("/api/v1/dialogs/{userId}/messages/{messageId}/read")
+    fun markRead(@PathVariable userId: UUID, @PathVariable messageId: UUID): ResponseEntity<Void> {
+        dialogService.markRead(userId, messageId)
+        return ResponseEntity.status(HttpStatus.ACCEPTED).build()
     }
 
     private fun DialogMessage.toResponse() = MessageResponse(

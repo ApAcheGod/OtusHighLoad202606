@@ -935,3 +935,216 @@ Nginx перенаправил 1 181 запрос на второй инстан
 Система продолжила обслуживать запросы в обоих экспериментах без ручного
 переключения. После отказа слейва трафик перешёл на второй слейв через HAProxy,
 после отказа бэкенда — на оставшийся инстанс через Nginx.
+
+---
+
+# ДЗ-10. Сервис счётчиков
+
+Добавлены общий счётчик непрочитанных входящих сообщений и прочтение одного
+сообщения. `chat-service` атомарно пишет бизнес-состояние и outbox в Tarantool;
+stateless `counter-service` через Kafka поддерживает идемпотентную проекцию в
+отдельном Valkey. Консистентность обеспечивается событийной SAGA с компенсациями,
+retry/DLT и восстановлением из snapshot Tarantool.
+
+Новые публичные операции:
+
+- `PUT /dialog/{userId}/messages/{messageId}/read` — прочитать одно входящее
+  сообщение, ответ `202`;
+- `GET /dialog/unread/count` — получить `{"user_id":"uuid","unread":N}`.
+
+## Архитектура
+
+```mermaid
+flowchart LR
+    Client[Клиент] --> App[app / BFF]
+    App -->|отправка и прочтение| Chat[chat-service]
+    Chat -->|Lua UDF| TT[(Tarantool)]
+    TT -->|message + outbox в box.atomic| Relay[Outbox relay]
+    Relay -->|at least once| Kafka[(Kafka)]
+    Kafka -->|counter.events| Counter[counter-service]
+    Counter -->|атомарная Lua| Valkey[(counter-valkey)]
+    Counter -->|counter.compensations| Kafka
+    Kafka -->|обратное действие| Chat
+    App -->|GET /dialog/unread/count| Counter
+    Counter -->|обычный GET| Valkey
+    Counter -->|snapshot / reconcile| Chat
+    Chat -->|фактические состояния| TT
+```
+
+| Компонент | Ответственность |
+|---|---|
+| `app` | Bearer-аутентификация, сохранение публичного REST-контракта, проксирование |
+| `chat-service` | Диалоги, проверка участников, outbox relay, применение компенсаций |
+| Tarantool | Источник истины; сообщение/прочтение и outbox в одной локальной транзакции |
+| Kafka | Доставка событий и компенсаций; порядок событий одного сообщения по ключу `message_id` |
+| `counter-service` | Идемпотентная проекция, чтение, retry, DLT, инициация компенсаций, восстановление |
+| Valkey | Счётчики, состояния сообщений для дедупликации и состояния SAGA |
+
+`counter-service` не имеет собственной реляционной БД и не хранит состояние в памяти процесса. Реплики сервиса могут работать в одной Kafka consumer group. Valkey — не кэш поверх запроса `COUNT(*)`, а восстанавливаемая KV-проекция.
+
+## Модель данных
+
+### Tarantool
+
+В `dialog_messages` добавлены `read_at_ns`, `operation_version`, `counter_status`, `updated_at_ns`. Версия увеличивается при изменении состояния прочтения и защищает от поздних событий и компенсаций.
+
+Новые spaces:
+
+- `dialog_outbox`: `event_id`, `saga_id`, `message_id`, тип, payload, время, признак публикации, попытки и последняя ошибка;
+- `dialog_inbox`: `event_id` обработанных компенсаций для идемпотентности.
+
+UDF `dialog_send`, `dialog_mark_read` и `dialog_apply_compensation` выполняют изменение бизнес-состояния и outbox/inbox внутри `box.atomic`. `dialog_unread_snapshot` возвращает фактическое число непрочитанных и состояния сообщений с версиями.
+
+### Kafka
+
+| Топик | События |
+|---|---|
+| `counter.events` | `MESSAGE_SENT`, `MESSAGE_READ`, `COMPENSATION_APPLIED` |
+| `counter.compensations` | `MARK_MESSAGE_NOT_UNREAD`, `RESTORE_UNREAD_MESSAGE` |
+| `counter.events.DLT` | События после исчерпания retry |
+
+Во всех записях ключ — `message_id`: отправка, прочтение и компенсация одного сообщения попадают в одну партицию. Producer использует `acks=all` и idempotence. Это не исключает повторную доставку после сбоя consumer, поэтому сквозная семантика — at-least-once.
+
+У `counter.events` retention — 24 часа. Tombstone в Valkey живут 7 дней, что больше окна возможного повтора.
+
+### Valkey
+
+```text
+unread:{userId}:counter                 String: неотрицательное число
+unread:{userId}:message:{messageId}     String: UNREAD:<version> | READ:<version>
+unread:{userId}:saga:{sagaId}           Hash: состояние и данные SAGA
+unread:{userId}:restore-lock            String: короткий distributed lock
+```
+
+Hash tag `{userId}` сохраняет ключи одной Lua-операции в одном slot при будущем переходе к cluster mode.
+
+TTL:
+
+- `counter` и `UNREAD` не истекают;
+- `READ` и завершённые SAGA хранятся 7 дней;
+- lock восстановления живёт до 5 секунд и удаляется compare-and-delete Lua-скриптом;
+- потеря любых ключей проекции устраняется восстановлением из Tarantool.
+
+Lua-скрипты `apply_sent`, `apply_read`, `saga_state` и `restore_counter` атомарно выполняют проверки версий, дедупликацию, изменение счётчика и фиксацию состояния. Декремент ниже нуля запрещён: возвращается `INVARIANT_VIOLATION`, увеличивается метрика и запускается компенсация.
+
+## SAGA отправки
+
+```mermaid
+sequenceDiagram
+    participant C as Клиент
+    participant Chat as chat-service
+    participant TT as Tarantool
+    participant K as Kafka
+    participant CS as counter-service
+    participant V as Valkey
+
+    C->>Chat: POST /dialog/{userId}/send
+    Chat->>TT: dialog_send
+    TT->>TT: box.atomic: UNREAD + MESSAGE_SENT outbox
+    Chat-->>C: message_id
+    Chat->>K: MESSAGE_SENT, key=message_id
+    K->>CS: доставка at least once
+    CS->>V: apply_sent
+    V->>V: дедупликация + UNREAD + INCR + APPLIED
+```
+
+HTTP-ответ подтверждает запись сообщения и outbox, но не синхронное обновление Valkey. Между коммитом Tarantool и применением события допускается краткая eventual consistency.
+
+При неустранимой ошибке проекции:
+
+1. `counter-service` атомарно переводит SAGA в `COMPENSATING`;
+2. публикует `MARK_MESSAGE_NOT_UNREAD`;
+3. `chat-service` проверяет `operation_version`, снимает признак непрочитанного и ставит `counter_status=COUNTER_FAILED`, не удаляя текст из истории;
+4. атомарно пишет inbox и outbox `COMPENSATION_APPLIED`;
+5. `counter-service` переводит SAGA в `COMPENSATED`.
+
+Если публикация компенсации не удалась, исходное событие повторяется. Состояние `COMPENSATING` предотвращает повторное изменение счётчика и дублирование компенсации.
+
+## SAGA прочтения
+
+```mermaid
+sequenceDiagram
+    participant C as Клиент
+    participant Chat as chat-service
+    participant TT as Tarantool
+    participant K as Kafka
+    participant CS as counter-service
+    participant V as Valkey
+
+    C->>Chat: PUT /dialog/{userId}/messages/{messageId}/read
+    Chat->>TT: dialog_mark_read
+    TT->>TT: box.atomic: read_at + version + MESSAGE_READ outbox
+    Chat-->>C: 202 Accepted
+    Chat->>K: MESSAGE_READ, key=message_id
+    K->>CS: доставка at least once
+    CS->>V: apply_read
+    V->>V: дедупликация + READ + DECR + APPLIED
+```
+
+Повторное прочтение не создаёт новую операцию и не уменьшает счётчик. При неустранимой ошибке проекции отправляется `RESTORE_UNREAD_MESSAGE`: Tarantool очищает `read_at` только при совпадении версии. Более позднее действие пользователя старая компенсация не перезаписывает.
+
+Если `MESSAGE_READ` пришёл при отсутствии состояния, Lua создаёт READ-tombstone без декремента. Последующий старый `MESSAGE_SENT` не сможет ошибочно увеличить счётчик.
+
+## Retry, DLT и восстановление
+
+Временные ошибки Valkey/Kafka не запускают компенсацию сразу. Consumer использует manual acknowledgement и exponential backoff: 100 мс, множитель 2, максимальный интервал 5 секунд, общий лимит retry 30 секунд. Offset подтверждается только после успешной атомарной операции.
+
+После исчерпания retry `CounterEventRecoverer` инициирует компенсацию и публикует исходную запись в `counter.events.DLT` с заголовком `counter_error`. Так обрабатываются poison events и постоянные нарушения инварианта.
+
+При cache miss `counter-service`:
+
+1. получает lock на пользователя;
+2. повторно проверяет Valkey;
+3. получает snapshot через внутренний API `chat-service`;
+4. одной Lua-операцией восстанавливает счётчик и состояния сообщений;
+5. освобождает lock compare-and-delete.
+
+Miss не считается нулём. Ожидающие запросы используют уже восстановленное значение, а не создают нагрузку на Tarantool. Принудительная сверка доступна через `POST /internal/counters/{userId}/reconcile`.
+
+## Поведение при сбоях
+
+| Сбой | Поведение |
+|---|---|
+| Tarantool недоступен | Операция диалога возвращает `503`; частичной записи без outbox нет |
+| Kafka недоступна | Диалоги работают; outbox остаётся в Tarantool и публикуется после восстановления |
+| Valkey временно недоступен | Offset не подтверждается, выполняются retry; health сообщает о сбое |
+| Неустранимое событие | Компенсация источника истины + запись в DLT |
+| Дубликат Kafka | Состояние сообщения/SAGA делает обработку идемпотентной |
+| Старое событие или компенсация | Отклоняется по `operation_version` |
+| Декремент из нуля | Отрицательное значение запрещено; фиксируется нарушение инварианта |
+| Удаление counter key или потеря Valkey | Восстановление из snapshot Tarantool |
+
+
+## API
+
+### Отправка
+
+```http
+POST /dialog/{userId}/send
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"text":"hello","client_message_id":"optional-uuid"}
+```
+
+Ответ — JSON-строка с `message_id`. Повтор с тем же `client_message_id` возвращает исходный идентификатор.
+
+### Прочтение
+
+```http
+PUT /dialog/{userId}/messages/{messageId}/read
+Authorization: Bearer <token>
+```
+
+`{userId}` — собеседник. Успех — `202`; повтор также успешен. Чужое/исходящее сообщение — `403`, несуществующее или из другого диалога — `404`.
+
+### Счётчик
+
+```http
+GET /dialog/unread/count
+Authorization: Bearer <token>
+```
+
+```json
+{"user_id":"uuid","unread":12}
+```

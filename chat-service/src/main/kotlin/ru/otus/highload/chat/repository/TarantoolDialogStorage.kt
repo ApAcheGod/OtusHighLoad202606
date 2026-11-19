@@ -7,6 +7,9 @@ import io.tarantool.core.exceptions.BoxError
 import org.springframework.stereotype.Component
 import ru.otus.highload.chat.config.StorageUnavailableException
 import ru.otus.highload.chat.model.DialogMessage
+import ru.otus.highload.chat.model.MarkReadResult
+import ru.otus.highload.chat.model.MessageAccessDeniedException
+import ru.otus.highload.chat.model.MessageNotFoundException
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CompletionException
@@ -66,6 +69,27 @@ class TarantoolDialogStorage(
         }
     }
 
+    override fun markRead(userId: UUID, peerId: UUID, messageId: UUID): MarkReadResult {
+        val span = tracer.nextSpan().name("tarantool dialog_mark_read").start()
+        try {
+            tracer.withSpan(span).use {
+                val result = call {
+                    client.call(
+                        "dialog_mark_read",
+                        listOf(userId.toString(), peerId.toString(), messageId.toString()),
+                        object : TypeReference<List<Map<String, Any>>>() {},
+                    ).join().get()
+                }.single()
+                return MarkReadResult.valueOf(result.getValue("status").toString())
+            }
+        } catch (e: Exception) {
+            span.error(e)
+            throw e
+        } finally {
+            span.end()
+        }
+    }
+
     private fun instantFromNs(value: String): Instant {
         val ns = value.removeSuffix("ULL").removeSuffix("LL").toLong()
         return Instant.ofEpochSecond(Math.floorDiv(ns, 1_000_000_000L), Math.floorMod(ns, 1_000_000_000L))
@@ -75,8 +99,14 @@ class TarantoolDialogStorage(
         block()
     } catch (ex: CompletionException) {
         val cause = ex.cause ?: ex
-        if (cause is BoxError && cause.message?.contains("BAD_REQUEST:") == true) {
-            throw IllegalArgumentException(cause.message?.substringAfter("BAD_REQUEST:")?.trim(), cause)
+        if (cause is BoxError) {
+            val message = cause.message.orEmpty()
+            when {
+                message.contains("BAD_REQUEST:") ->
+                    throw IllegalArgumentException(message.substringAfter("BAD_REQUEST:").trim(), cause)
+                message.contains("FORBIDDEN:") -> throw MessageAccessDeniedException()
+                message.contains("NOT_FOUND:") -> throw MessageNotFoundException()
+            }
         }
         throw StorageUnavailableException("Tarantool unavailable", cause)
     }

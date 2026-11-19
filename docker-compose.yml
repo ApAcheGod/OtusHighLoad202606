@@ -264,6 +264,8 @@ services:
       SPRING_LIQUIBASE_USER: otus
       SPRING_LIQUIBASE_PASSWORD: otus_pass
       APP_CHAT_SERVICE_URL: http://chat-service:8083
+      APP_COUNTER_SERVICE_URL: http://counter-service:8090
+      APP_INTERNAL_TOKEN: local-internal-token
       SPRING_GRPC_CLIENT_CHANNEL_DEFAULT_TARGET: auth-service:9090
       SPRING_GRPC_CLIENT_CHANNEL_USER_SERVICE_TARGET: user-nginx:9092
       SPRING_GRPC_CLIENT_CHANNEL_POST_SERVICE_TARGET: post-service:9093
@@ -288,6 +290,8 @@ services:
       redis:
         condition: service_healthy
       chat-service:
+        condition: service_started
+      counter-service:
         condition: service_started
       auth-service:
         condition: service_started
@@ -316,6 +320,8 @@ services:
       APP_TARANTOOL_HOST: tarantool
       APP_TARANTOOL_USERNAME: app
       APP_TARANTOOL_PASSWORD: app_pass
+      APP_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      APP_INTERNAL_TOKEN: local-internal-token
       SPRING_GRPC_CLIENT_CHANNEL_DEFAULT_TARGET: auth-service:9090
       MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
       MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED: "false"
@@ -330,9 +336,44 @@ services:
     depends_on:
       tarantool:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
       auth-service:
         condition: service_started
 
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+  counter-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: counter-service
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=66.0 -XX:+UseCompactObjectHeaders
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: counter-valkey
+      SPRING_DATA_REDIS_PORT: "6379"
+      APP_CHAT_SERVICE_URL: http://chat-service:8083
+      APP_INTERNAL_TOKEN: local-internal-token
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED: "false"
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8090' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+      start_interval: 1s
+    depends_on:
+      kafka:
+        condition: service_healthy
+      counter-valkey:
+        condition: service_healthy
+      chat-service:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -705,6 +746,20 @@ services:
       resources:
         limits:
           memory: 512m
+  counter-valkey:
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - counter_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 256m
   redis:
     image: redis:8.8.4-alpine
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
@@ -724,7 +779,9 @@ services:
           memory: 128m
   tarantool:
     image: tarantool/tarantool:3
+    entrypoint: ["env", "-u", "TT_APP_NAME", "-u", "TT_INSTANCE_NAME"]
     command: ["tarantool", "/opt/tarantool/init.lua"]
+    working_dir: /var/lib/tarantool
     environment:
       TT_MEMTX_MEMORY: "2147483648"
     ports:
@@ -846,6 +903,7 @@ volumes:
   citus_worker2_data:
   citus_worker3_data:
   citus_worker4_data:
+  counter_valkey_data:
   redis_data:
   tarantool_data:
   user_db_data:

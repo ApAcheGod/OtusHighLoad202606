@@ -9,6 +9,7 @@ COPY gradle gradle
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY app/build.gradle.kts app/build.gradle.kts
 COPY chat-service/build.gradle.kts chat-service/build.gradle.kts
+COPY counter-service/build.gradle.kts counter-service/build.gradle.kts
 COPY auth-service/build.gradle.kts auth-service/build.gradle.kts
 COPY user-service/build.gradle.kts user-service/build.gradle.kts
 COPY post-service/build.gradle.kts post-service/build.gradle.kts
@@ -22,6 +23,7 @@ COPY utils/src utils/src
 COPY grpc-api/src grpc-api/src
 COPY app/src app/src
 COPY chat-service/src chat-service/src
+COPY counter-service/src counter-service/src
 COPY auth-service/src auth-service/src
 COPY user-service/src user-service/src
 COPY post-service/src post-service/src
@@ -37,6 +39,7 @@ RUN --mount=type=cache,id=otus-gradle,target=/home/gradle/.gradle,sharing=locked
       :friend-service:bootJar \
       :feed-service:bootJar \
       :chat-service:bootJar \
+      :counter-service:bootJar \
       :gateway:bootJar
 
 FROM eclipse-temurin:25-jre AS chat-service
@@ -44,6 +47,12 @@ WORKDIR /app
 COPY --from=build /app/chat-service/build/libs/chat-service.jar chat-service.jar
 EXPOSE 8083
 CMD ["java", "-jar", "chat-service.jar"]
+
+FROM eclipse-temurin:25-jre AS counter-service
+WORKDIR /app
+COPY --from=build /app/counter-service/build/libs/counter-service.jar counter-service.jar
+EXPOSE 8090
+CMD ["java", "-jar", "counter-service.jar"]
 
 FROM eclipse-temurin:25-jre AS auth-service
 WORKDIR /app

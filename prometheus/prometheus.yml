@@ -19,6 +19,12 @@ scrape_configs:
     static_configs:
       - targets: ['chat-service:8083']
 
+  - job_name: 'counter-service'
+    scrape_interval: 15s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['counter-service:8090']
+
   - job_name: 'auth-service'
     scrape_interval: 15s
     metrics_path: /actuator/prometheus
