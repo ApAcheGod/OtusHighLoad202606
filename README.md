@@ -1148,3 +1148,110 @@ Authorization: Bearer <token>
 ```json
 {"user_id":"uuid","unread":12}
 ```
+
+---
+
+# ДЗ-11. Мониторинг сервиса чатов
+
+## Цель и результат
+
+Развёрнуты Zabbix, Prometheus и Grafana. Сервис `chat-service` публикует
+бизнес-метрики по принципу RED, Zabbix собирает технические метрики сервера,
+а в Grafana подготовлен дашборд **Chat Service RED**.
+
+## Архитектура
+
+```text
+chat-service ── /actuator/prometheus ──► Prometheus ──► Grafana
+                                             │        Chat Service RED
+                                             │        Rate / Errors / Duration
+                                             │
+Zabbix Agent 2 ── active checks ──► Zabbix Server ──► Zabbix Web
+       │                                  │
+       └─ CPU, память, диски, сеть         └─ PostgreSQL
+```
+
+| Компонент | Адрес | Назначение |
+|---|---|---|
+| `chat-service` | `http://localhost:8083` | Бизнес-операции и endpoint Prometheus |
+| Prometheus | `http://localhost:9090` | Сбор и хранение RED-метрик |
+| Grafana | `http://localhost:3000` | Дашборд; `admin` / `admin` |
+| Zabbix Web | `http://localhost:8091` | Просмотр технических метрик; `Admin` / `zabbix` |
+| Zabbix Server | внутренний порт `10051` | Приём активных проверок агента |
+| Zabbix Agent 2 | внутри Compose | Метрики хоста `chat-server` |
+| Zabbix PostgreSQL | внутри Compose | Хранение конфигурации и истории Zabbix |
+
+
+
+## Бизнес-метрики по принципу RED
+
+Класс `ChatMetrics` оборачивает операции `DialogService` и записывает результат
+также при исключении. Покрыты три бизнес-операции: `send`, `list`, `mark_read`.
+
+| Метрика | Тип | Labels | Назначение |
+|---|---|---|---|
+| `chat_operations_total` | Counter | `operation`, `result` | Rate и Errors |
+| `chat_operation_duration_seconds` | Timer с percentile histogram | `operation` | Duration |
+
+`result` принимает значения `success` и `error`. Поэтому ошибочные ответы,
+обрабатываемые контроллером через исключения, включаются в ошибки бизнес-операции,
+а не теряются за общим HTTP-трафиком.
+
+Основные запросы дашборда:
+
+```promql
+# Rate: все операции, запросов/с
+sum(rate(chat_operations_total[5m]))
+
+# Errors: доля ошибок
+sum(rate(chat_operations_total{result="error"}[5m]))
+  / clamp_min(sum(rate(chat_operations_total[5m])), 0.000000001)
+
+# Duration: p95 и p99 по гистограммам
+histogram_quantile(0.95,
+  sum by (le) (rate(chat_operation_duration_seconds_bucket[5m])))
+histogram_quantile(0.99,
+  sum by (le) (rate(chat_operation_duration_seconds_bucket[5m])))
+```
+
+Для панелей по операциям используется группировка `sum by (operation, ...)`.
+Дашборд содержит шесть панелей: общие Rate, Errors и Duration, а также Rate,
+Errors и Duration с разбиением по `send`, `list`, `mark_read`.
+
+## Технические метрики Zabbix
+
+`zabbix-agent2` работает в активном режиме и подключается к `zabbix-server`.
+Для доступа к метрикам окружения Docker ему переданы host PID namespace и
+read-only mount `/`, `/proc`, `/sys`.
+
+Скрипт `scripts/zabbix/init_host.py` запускается контейнером `zabbix-init` и
+идемпотентно:
+
+1. находит группу `Linux servers` и шаблон `Linux by Zabbix agent active`;
+2. создаёт или исправляет enabled-хост `chat-server`;
+3. подключает шаблон и повторно читает конфигурацию для проверки.
+
+Шаблон собирает загрузку CPU, память, файловые системы, сетевые интерфейсы и
+другие системные показатели.
+
+
+### Zabbix: технические метрики
+
+На странице **Monitoring → Latest data** выбран `chat-server`. Видны доступность
+активного агента, фактические значения памяти и CPU, время последней проверки.
+
+![Zabbix — технические метрики chat-server](docs/images/hw11-zabbix-latest-data.png)
+
+### Prometheus: бизнес-метрики
+
+Запрос `sum by (operation, result) (chat_operations_total)` показывает успешные
+операции всех трёх типов и отдельную серию ошибок `mark_read`.
+
+![Prometheus — RED-метрики сервиса чатов](docs/images/hw11-prometheus-chat-red.png)
+
+### Grafana: RED-дашборд
+
+Дашборд **Chat Service RED** с общими показателями и
+разбиением по бизнес-операциям.
+
+![Grafana — Chat Service RED](docs/images/hw11-grafana-chat-red.png)
