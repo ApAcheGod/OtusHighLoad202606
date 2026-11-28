@@ -1,0 +1,86 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"refId": "A", "expr": "sum(rate(chat_operations_total[5m]))", "legendFormat": "All operations"}],
+      "title": "Rate — requests/s",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "max": 1, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"refId": "A", "expr": "sum(rate(chat_operations_total{result=\"error\"}[5m])) / clamp_min(sum(rate(chat_operations_total[5m])), 0.000000001)", "legendFormat": "Error ratio"}],
+      "title": "Errors — ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 4, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(chat_operation_duration_seconds_bucket[5m])))", "legendFormat": "p95"},
+        {"refId": "B", "expr": "histogram_quantile(0.99, sum by (le) (rate(chat_operation_duration_seconds_bucket[5m])))", "legendFormat": "p99"}
+      ],
+      "title": "Duration — p95 / p99",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2, "min": 0}, "overrides": []},
+      "gridPos": {"h": 12, "w": 8, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "sum by (operation) (rate(chat_operations_total[5m]))", "legendFormat": "{{operation}}"}],
+      "title": "Rate by operation",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "max": 1, "min": 0}, "overrides": []},
+      "gridPos": {"h": 12, "w": 8, "x": 8, "y": 8},
+      "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "sum by (operation) (rate(chat_operations_total{result=\"error\"}[5m])) / clamp_min(sum by (operation) (rate(chat_operations_total[5m])), 0.000000001)", "legendFormat": "{{operation}}"}],
+      "title": "Errors by operation",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 4, "min": 0}, "overrides": []},
+      "gridPos": {"h": 12, "w": 8, "x": 16, "y": 8},
+      "id": 6,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum by (operation, le) (rate(chat_operation_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{operation}}"},
+        {"refId": "B", "expr": "histogram_quantile(0.99, sum by (operation, le) (rate(chat_operation_duration_seconds_bucket[5m])))", "legendFormat": "p99 {{operation}}"}
+      ],
+      "title": "Duration by operation",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": ["hw11", "chat", "RED"],
+  "templating": {"list": []},
+  "time": {"from": "now-30m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Chat Service RED",
+  "uid": "chat-service-red",
+  "version": 1
+}
