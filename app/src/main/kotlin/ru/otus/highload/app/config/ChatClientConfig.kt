@@ -13,4 +13,10 @@ class ChatClientConfig {
         builder: RestClient.Builder,
         @Value("\${app.chat-service.url:http://localhost:8083}") baseUrl: String,
     ): RestClient = builder.baseUrl(baseUrl).build()
+
+    @Bean
+    fun counterServiceRestClient(
+        builder: RestClient.Builder,
+        @Value("\${app.counter-service.url:http://localhost:8090}") baseUrl: String,
+    ): RestClient = builder.baseUrl(baseUrl).build()
 }

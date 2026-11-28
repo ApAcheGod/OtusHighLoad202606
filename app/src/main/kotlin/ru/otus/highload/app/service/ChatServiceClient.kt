@@ -1,6 +1,7 @@
 package ru.otus.highload.app.service
 
 import org.slf4j.MDC
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Component
@@ -12,7 +13,7 @@ import java.util.UUID
 
 @Component
 class ChatServiceClient(
-    private val restClient: RestClient,
+    @Qualifier("chatServiceRestClient") private val restClient: RestClient,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -39,6 +40,13 @@ class ChatServiceClient(
             .toEntity(ByteArray::class.java)
             .also { log.info("proxy dialog list -> chat-service: status={} bodyLen={}", it.statusCode, it.body?.size) }
     }
+
+    fun markRead(userId: UUID, messageId: UUID): ResponseEntity<ByteArray> =
+        restClient.put()
+            .uri("/api/v1/dialogs/{userId}/messages/{messageId}/read", userId, messageId)
+            .apply { propagateHeaders() }
+            .retrieve()
+            .toEntity(ByteArray::class.java)
 
     private fun RestClient.RequestHeadersSpec<*>.propagateHeaders() {
         currentRequest()?.getHeader("Authorization")?.let { header("Authorization", it) }

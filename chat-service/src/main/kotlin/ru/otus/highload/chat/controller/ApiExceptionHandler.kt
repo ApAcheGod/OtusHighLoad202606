@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import ru.otus.highload.chat.config.StorageUnavailableException
+import ru.otus.highload.chat.model.MessageAccessDeniedException
+import ru.otus.highload.chat.model.MessageNotFoundException
 import java.time.Instant
 
 @RestControllerAdvice
@@ -30,6 +32,14 @@ class ApiExceptionHandler {
     @ExceptionHandler(IllegalStateException::class)
     fun handleUnauthorized(ex: IllegalStateException): ResponseEntity<Map<String, Any>> =
         error(HttpStatus.UNAUTHORIZED, ex.message ?: "Unauthorized")
+
+    @ExceptionHandler(MessageNotFoundException::class)
+    fun handleNotFound(ex: MessageNotFoundException): ResponseEntity<Map<String, Any>> =
+        error(HttpStatus.NOT_FOUND, ex.message ?: "Message not found")
+
+    @ExceptionHandler(MessageAccessDeniedException::class)
+    fun handleAccessDenied(ex: MessageAccessDeniedException): ResponseEntity<Map<String, Any>> =
+        error(HttpStatus.FORBIDDEN, ex.message ?: "Access denied")
 
     @ExceptionHandler(StorageUnavailableException::class)
     fun handleStorageUnavailable(ex: StorageUnavailableException): ResponseEntity<Map<String, Any>> =

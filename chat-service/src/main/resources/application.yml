@@ -11,11 +11,17 @@ spring:
           target: localhost:9090
 
 app:
+  internal-token: ${APP_INTERNAL_TOKEN:local-internal-token}
   tarantool:
     host: localhost
     port: 3301
     username: app
     password: app_pass
+  kafka:
+    bootstrap-servers: ${APP_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    send-timeout-ms: 10000
+  counter:
+    outbox-poll-ms: 100
 
 logging:
   level:

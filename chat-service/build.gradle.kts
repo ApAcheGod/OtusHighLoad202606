@@ -15,6 +15,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation("org.springframework.kafka:spring-kafka")
     implementation("org.springframework.boot:spring-boot-starter-grpc-client")
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("io.tarantool:tarantool-client:1.7.3")
@@ -23,4 +24,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-health")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
 }

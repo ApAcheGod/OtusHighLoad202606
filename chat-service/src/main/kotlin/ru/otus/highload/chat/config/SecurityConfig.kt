@@ -22,7 +22,7 @@ class SecurityConfig(
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { auth ->
                 auth
-                    .requestMatchers("/actuator/**").permitAll()
+                    .requestMatchers("/actuator/**", "/internal/**").permitAll()
                     .anyRequest().authenticated()
             }
             .exceptionHandling { ex ->
